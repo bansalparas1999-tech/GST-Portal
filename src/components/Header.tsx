@@ -24,6 +24,9 @@ import {
   Zap,
   Sliders,
   Archive,
+  Menu,
+  MoreVertical,
+  Wrench,
 } from 'lucide-react';
 import { Language, UserProfile, PanEntity, PanGstinBranch } from '../types';
 import { checkExtensionActive, triggerExtensionLogin } from '../utils/gstExtensionBridge';
@@ -48,6 +51,9 @@ interface HeaderProps {
   onOpenGstIncognitoDriver?: (gstin?: string, branch?: PanGstinBranch, entity?: PanEntity) => void;
   onOpenManualRecon?: () => void;
   onOpenManageRegisters?: () => void;
+  onOpenMobileSidebar?: () => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebarCollapse?: () => void;
   booksCount?: number;
   gstr2bCount?: number;
   companyGstin: string;
@@ -79,6 +85,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGstIncognitoDriver,
   onOpenManualRecon,
   onOpenManageRegisters,
+  onOpenMobileSidebar,
+  isSidebarCollapsed,
+  onToggleSidebarCollapse,
   booksCount = 0,
   gstr2bCount = 0,
   companyGstin,
@@ -93,8 +102,10 @@ export const Header: React.FC<HeaderProps> = ({
   const t = translations[language];
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
+  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
 
   const activeCompanyName = activePanEntity?.legalName || currentUser?.companyName || 'Apex Audit & Taxation Advisory LLP';
   const displayPan = activePan || activePanEntity?.pan || companyGstin?.slice(2, 12) || 'AABCA1234F';
@@ -107,6 +118,9 @@ export const Header: React.FC<HeaderProps> = ({
       }
       if (branchDropdownRef.current && !branchDropdownRef.current.contains(e.target as Node)) {
         setIsBranchDropdownOpen(false);
+      }
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target as Node)) {
+        setIsToolsMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -185,40 +199,57 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header
       id="main-header"
-      className="h-20 bg-white border-b border-[#E0E4DE] flex items-center justify-between px-4 sm:px-8 shrink-0 shadow-xs z-20"
+      className="min-h-16 py-2 bg-white border-b border-[#E0E4DE] flex items-center justify-between px-3 sm:px-6 shrink-0 shadow-xs z-20 gap-2"
     >
       {/* Title & Context */}
-      <div>
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg sm:text-xl font-bold text-[#1A2E25] tracking-tight">
-            {activeTabTitle}
-          </h2>
-          {currentUser && (
-            <>
-              <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-[#EDF3EF] text-[#2D4A3E] border border-[#D5E2D9]">
-                <span>{selectedPeriod}</span>
-                <span className="text-[#8DA173]">•</span>
-                <span className="text-[#1A2E25]">{getMonthLabel(selectedMonth)}</span>
-              </span>
-              <span
-                className={`hidden md:inline-block text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                  currentUser.role === 'admin'
-                    ? 'bg-[#2D4A3E] text-white'
-                    : 'bg-[#EDF3EF] text-[#2D4A3E]'
-                }`}
-              >
-                {currentUser.role === 'admin' ? 'Admin Workspace' : 'User Workspace'}
-              </span>
-            </>
-          )}
-        </div>
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        {/* Mobile Hamburger Menu Toggle */}
+        {onOpenMobileSidebar && (
+          <button
+            type="button"
+            onClick={onOpenMobileSidebar}
+            className="lg:hidden p-1.5 rounded-lg text-[#56655A] hover:bg-[#EDF3EF] hover:text-[#1A2E25] transition-colors cursor-pointer shrink-0"
+            title="Open Menu"
+            aria-label="Open Navigation Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
 
-        {/* Subtitle / Financial Year & Month / Entity */}
-        {currentUser ? (
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-[#738276] mt-1">
-            {/* Financial Year Selector */}
-            <span className="flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-[#8DA173]" />
+        {/* Desktop Sidebar Toggle */}
+        {onToggleSidebarCollapse && (
+          <button
+            type="button"
+            onClick={onToggleSidebarCollapse}
+            className="hidden lg:flex p-1.5 rounded-lg text-[#738276] hover:bg-[#EDF3EF] hover:text-[#1A2E25] transition-colors cursor-pointer shrink-0"
+            title={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            aria-label={isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        )}
+
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base sm:text-lg font-bold text-[#1A2E25] tracking-tight truncate leading-tight">
+              {activeTabTitle}
+            </h2>
+            {currentUser && (
+              <span className="hidden xl:inline-flex items-center gap-1.5 text-xs text-[#56655A] font-medium">
+                <span className="text-[#8DA173]">/</span>
+                <span className="font-mono text-[#2D4A3E] font-semibold">{selectedPeriod}</span>
+                <span className="text-[#8DA173]">·</span>
+                <span>{getMonthLabel(selectedMonth)}</span>
+              </span>
+            )}
+          </div>
+
+          {/* Subtitle / Financial Year & Month / Entity */}
+          {currentUser ? (
+            <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 text-xs text-[#738276] mt-0.5">
+              {/* Financial Year Selector */}
+              <span className="flex items-center gap-1 text-[11px]">
+                <Calendar className="w-3 h-3 text-[#8DA173]" />
               <span className="text-[11px] font-semibold text-[#56655A]">FY:</span>
               <select
                 id="period-select"
@@ -489,82 +520,34 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Statutory GST Input Tax Credit (ITC) Reconciliation & Section 16(2)(aa) Governance</span>
           </div>
         )}
+        </div>
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-2 sm:gap-2.5">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {currentUser ? (
           <>
-            {/* Manual Period Reconciliation Studio Button */}
-            {onOpenManualRecon && (
-              <button
-                id="btn-manual-recon-header"
-                type="button"
-                onClick={onOpenManualRecon}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#2D4A3E] hover:bg-[#1A2E25] text-white font-bold text-xs shadow-xs transition-all cursor-pointer border border-[#8DA173]/40"
-                title="Run manual reconciliation across custom GSTR-2B & Purchase Register periods (e.g. 022022 to 022026)"
-              >
-                <Sliders className="w-3.5 h-3.5 text-[#8DA173]" />
-                <span className="hidden sm:inline">Manual Recon</span>
-                <span className="px-1.5 py-0.2 bg-[#8DA173] text-white rounded text-[10px] font-mono font-bold">
-                  022022-26
-                </span>
-              </button>
-            )}
-
-            {/* Persistent Registers Manager Button */}
-            {onOpenManageRegisters && (
-              <button
-                id="btn-manage-registers-header"
-                type="button"
-                onClick={onOpenManageRegisters}
-                className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#EDF3EF] hover:bg-[#D5E2D9] text-[#2D4A3E] font-bold text-xs border border-[#D5E2D9] transition-all cursor-pointer shadow-2xs"
-                title="Manage permanently saved Purchase Register & GSTR-2B invoices for this User ID"
-              >
-                <Database className="w-3.5 h-3.5 text-[#5C7243]" />
-                <span className="hidden lg:inline">Stored Registers</span>
-                <span className="text-[10px] font-mono bg-white px-1.5 py-0.5 rounded border border-[#D5E2D9] text-[#1A2E25]">
-                  B:{booksCount} | 2B:{gstr2bCount}
-                </span>
-              </button>
-            )}
-
-            {/* Official GST Portal Login & Live AI Captcha Button */}
-            {onOpenGstPortalLogin && (
-              <button
-                id="btn-gst-portal-login-header"
-                type="button"
-                onClick={onOpenGstPortalLogin}
-                className="hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-lg bg-linear-to-r from-[#1A2E25] to-[#2D4A3E] text-white hover:from-[#0F1F19] hover:to-[#1E362C] font-bold text-xs shadow-xs transition-all cursor-pointer border border-[#8DA173]/30"
-                title="Open Official GST Portal (services.gst.gov.in) with autofill & AI Captcha reader"
-              >
-                <Globe className="w-3.5 h-3.5 text-[#8DA173]" />
-                <span>GST Portal Login</span>
-                <span className="px-1.5 py-0.2 bg-[#8DA173]/30 text-[#D3E8DA] rounded text-[10px] font-mono">
-                  Captcha AI
-                </span>
-              </button>
-            )}
             {/* Unified Import Button with Options Dropdown */}
             <div className="relative" ref={importMenuRef}>
-              <div className="flex items-center rounded-lg border border-[#E0E4DE] bg-[#F1F3EE] hover:bg-[#E6EAE2] transition-colors overflow-hidden">
+              <div className="flex items-center rounded-lg border border-[#D5E2D9] bg-[#F1F3EE] hover:bg-[#E6EAE2] transition-colors overflow-hidden">
                 <button
                   id="btn-import-header-main"
                   type="button"
                   onClick={() => handleSelectImport('pdf')}
-                  className="flex items-center gap-1.5 px-3 py-2 text-[#2D4A3E] font-semibold text-xs cursor-pointer hover:text-[#1A2E25]"
+                  className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-[#2D4A3E] font-semibold text-xs cursor-pointer hover:text-[#1A2E25]"
                 >
-                  <UploadCloud className="w-4 h-4 text-[#2D4A3E]" />
-                  <span>{t.importFiles}</span>
+                  <UploadCloud className="w-3.5 h-3.5 text-[#2D4A3E]" />
+                  <span className="hidden sm:inline">{t.importFiles}</span>
+                  <span className="sm:hidden">Import</span>
                 </button>
                 <button
                   id="btn-import-header-dropdown"
                   type="button"
                   onClick={() => setIsImportMenuOpen(!isImportMenuOpen)}
                   aria-label="Import Options"
-                  className="px-1.5 py-2 border-l border-[#E0E4DE] text-[#2D4A3E] hover:bg-[#D5E2D9] transition-colors cursor-pointer"
+                  className="px-1 py-1.5 border-l border-[#D5E2D9] text-[#2D4A3E] hover:bg-[#D5E2D9] transition-colors cursor-pointer"
                 >
-                  <ChevronDown className="w-3.5 h-3.5" />
+                  <ChevronDown className="w-3 h-3" />
                 </button>
               </div>
 
@@ -667,13 +650,13 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
 
-            {/* Run Match */}
+            {/* Run Match Button (Primary Green) */}
             <button
               id="btn-run-match"
               type="button"
               onClick={onRunMatch}
               disabled={isMatching}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-white font-semibold text-xs transition-all shadow-xs cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white font-semibold text-xs transition-all shadow-xs cursor-pointer ${
                 isMatching
                   ? 'bg-[#3D5C4F] cursor-wait'
                   : 'bg-[#2D4A3E] hover:bg-[#1E362C] active:scale-98'
@@ -682,37 +665,128 @@ export const Header: React.FC<HeaderProps> = ({
               {isMatching ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#8DA173]" />
-                  <span>Matching...</span>
+                  <span className="hidden sm:inline">Matching...</span>
                 </>
               ) : (
                 <>
-                  <Play className="w-3.5 h-3.5 fill-current text-[#8DA173]" />
+                  <Play className="w-3 h-3 fill-current text-[#8DA173]" />
                   <span>{t.runMatch}</span>
                 </>
               )}
             </button>
 
-            {/* AI Audit */}
-            <button
-              id="btn-ai-audit-header"
-              type="button"
-              onClick={onOpenAiAudit}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#EDF3EF] text-[#2D4A3E] hover:bg-[#D5E2D9] font-bold text-xs border border-[#BBD3C5] transition-all cursor-pointer shadow-2xs"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#8DA173]" />
-              <span className="hidden md:inline">AI Auditor</span>
-            </button>
+            {/* Quick Tools Dropdown Menu (Consolidates secondary tools to prevent horizontal overflow on standard screen resolutions) */}
+            <div className="relative" ref={toolsMenuRef}>
+              <button
+                id="btn-tools-dropdown"
+                type="button"
+                onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#D5E2D9] bg-white hover:bg-[#F2F5F3] text-[#2D4A3E] font-semibold text-xs transition-colors cursor-pointer shadow-2xs"
+                title="Reconciliation Tools & Export"
+              >
+                <Wrench className="w-3.5 h-3.5 text-[#5C7243]" />
+                <span className="hidden md:inline">Tools</span>
+                <ChevronDown className="w-3 h-3 text-[#738276]" />
+              </button>
 
-            {/* Export CSV */}
-            <button
-              id="btn-export-header"
-              type="button"
-              onClick={onExport}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#E0E4DE] bg-[#F1F3EE] hover:bg-[#E6EAE2] text-[#2D4A3E] font-semibold text-xs transition-colors cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-[#2D4A3E]" />
-              <span className="hidden sm:inline">{t.export}</span>
-            </button>
+              {isToolsMenuOpen && (
+                <div className="absolute right-0 mt-1.5 w-64 bg-white rounded-xl border border-[#E0E4DE] shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-3 py-1 border-b border-[#F1F3EE] text-[10px] font-bold uppercase tracking-wider text-[#738276]">
+                    Recon & Export Tools
+                  </div>
+
+                  {onOpenManualRecon && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsToolsMenuOpen(false);
+                        onOpenManualRecon();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-semibold text-[#1A2E25] hover:bg-[#EDF3EF] flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Sliders className="w-3.5 h-3.5 text-[#8DA173]" />
+                        <span>Manual Period Recon</span>
+                      </div>
+                      <span className="text-[9px] px-1.5 py-0.2 bg-[#2D4A3E] text-white rounded font-mono font-bold">
+                        022022-26
+                      </span>
+                    </button>
+                  )}
+
+                  {onOpenManageRegisters && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsToolsMenuOpen(false);
+                        onOpenManageRegisters();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-semibold text-[#1A2E25] hover:bg-[#EDF3EF] flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Database className="w-3.5 h-3.5 text-[#5C7243]" />
+                        <span>Stored Registers</span>
+                      </div>
+                      <span className="text-[9px] font-mono bg-[#EDF3EF] px-1 py-0.2 rounded text-[#2D4A3E] font-bold">
+                        B:{booksCount} | 2B:{gstr2bCount}
+                      </span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsToolsMenuOpen(false);
+                      onOpenAiAudit();
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs font-semibold text-[#1A2E25] hover:bg-[#EDF3EF] flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-[#D9A14E]" />
+                      <span>AI Audit Report</span>
+                    </div>
+                    <span className="text-[9px] px-1.5 py-0.2 bg-[#D9A14E] text-white rounded font-bold">
+                      Smart
+                    </span>
+                  </button>
+
+                  {onOpenGstPortalLogin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsToolsMenuOpen(false);
+                        onOpenGstPortalLogin();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-semibold text-[#1A2E25] hover:bg-[#EDF3EF] flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-3.5 h-3.5 text-[#8DA173]" />
+                        <span>GST Portal Login</span>
+                      </div>
+                      <span className="text-[9px] px-1.5 py-0.2 bg-[#8DA173] text-white rounded font-bold">
+                        Captcha
+                      </span>
+                    </button>
+                  )}
+
+                  <div className="border-t border-[#F1F3EE] my-1" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsToolsMenuOpen(false);
+                      onExport();
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs font-semibold text-[#2D4A3E] hover:bg-[#EDF3EF] flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Download className="w-3.5 h-3.5 text-[#2D4A3E]" />
+                      <span>Export Reconciliation (CSV)</span>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Profile Avatar / Trigger */}
             <button
@@ -720,7 +794,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={onOpenProfile}
               title="View Profile & Settings"
-              className="w-9 h-9 rounded-xl bg-[#2D4A3E] text-white flex items-center justify-center font-bold text-xs hover:bg-[#1E362C] transition-all shadow-xs cursor-pointer ml-1"
+              className="w-8 h-8 rounded-xl bg-[#2D4A3E] text-white flex items-center justify-center font-bold text-xs hover:bg-[#1E362C] transition-all shadow-xs cursor-pointer shrink-0"
             >
               {currentUser.displayName ? (
                 currentUser.displayName.slice(0, 2).toUpperCase()
@@ -734,10 +808,10 @@ export const Header: React.FC<HeaderProps> = ({
             id="btn-login-trigger"
             type="button"
             onClick={onOpenAuth}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#2D4A3E] text-white font-bold text-xs hover:bg-[#1E362C] transition-all shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#2D4A3E] text-white font-bold text-xs hover:bg-[#1E362C] transition-all shadow-xs cursor-pointer"
           >
-            <UserIcon className="w-4 h-4 text-[#8DA173]" />
-            <span>Sign In to GST Workspace</span>
+            <UserIcon className="w-3.5 h-3.5 text-[#8DA173]" />
+            <span>Sign In</span>
           </button>
         )}
       </div>

@@ -25,6 +25,9 @@ import { GstVerificationView } from './components/GstVerificationView';
 import { InvoiceEditorModal, InvoiceEditorMode } from './components/InvoiceEditorModal';
 import { ManualReconModal } from './components/ManualReconModal';
 import { ManageRegistersModal } from './components/ManageRegistersModal';
+import { AppTabBar } from './components/AppTabBar';
+import { GstLegalAdvisorView } from './components/GstLegalAdvisorView';
+import { GstChatbotWidget } from './components/GstChatbotWidget';
 import {
   InvoiceRecord,
   ReconItem,
@@ -38,6 +41,8 @@ import {
   PanGstinBranch,
   HsnSummaryItem,
   B2csSummaryItem,
+  GstLegalQueryType,
+  GstNoticeAttachment,
 } from './types';
 import {
   reconcileGstData,
@@ -106,6 +111,40 @@ export default function App() {
   const [driverTargetEntity, setDriverTargetEntity] = useState<PanEntity | null>(null);
   const [isLoginPrompt, setIsLoginPrompt] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [preloadedLegalQuery, setPreloadedLegalQuery] = useState<{
+    queryType: GstLegalQueryType;
+    prompt: string;
+    attachment?: GstNoticeAttachment;
+  } | undefined>(undefined);
+
+  // Sidebar Collapse, Mobile Drawer & Focus View / Maximize Screen Resolution
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('clear_gst_sidebar_collapsed') === 'true';
+  });
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isFocusMode, setIsFocusMode] = useState<boolean>(() => {
+    return localStorage.getItem('clear_gst_focus_mode') === 'true';
+  });
+
+  const toggleSidebarCollapse = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('clear_gst_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
+
+  const toggleFocusMode = () => {
+    setIsFocusMode((prev) => {
+      const next = !prev;
+      localStorage.setItem('clear_gst_focus_mode', String(next));
+      if (next) {
+        setIsSidebarCollapsed(true);
+        localStorage.setItem('clear_gst_sidebar_collapsed', 'true');
+      }
+      return next;
+    });
+  };
 
   // Open GST Incognito Auto-Typing Driver
   const handleOpenGstIncognitoDriver = (
@@ -766,6 +805,8 @@ export default function App() {
         return language === 'hi' ? 'GSTR-1 रिटर्न, HSN सारांश (Table 12) व B2CS सारांश' : 'GSTR-1 Returns, Table 12 HSN & B2CS Summary';
       case 'gst_verification':
         return language === 'hi' ? 'GST व PAN स्थिति सत्यापन (एकल व बल्क)' : 'GST Status & PAN Verification Portal';
+      case 'gst_legal_bot':
+        return language === 'hi' ? 'GST लीगल AI एडवाइजरी एवं नोटिस रिप्लाई ड्राफ्टर' : 'GST Legal AI Advisory & Notice Reply Drafter';
       case 'discrepancy_report':
         return language === 'hi' ? 'डेटासेट अंतर एवं विसंगति रिपोर्ट' : 'Dataset Gap & Discrepancy Audit';
       case 'vendor_notices':
@@ -807,6 +848,10 @@ export default function App() {
           mismatches: purchaseRecon.summary.mismatchCount + purchaseRecon.summary.significantDiscrepancyCount,
         }}
         currentUser={currentUser}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapse}
+        isMobileOpen={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
         onOpenAuth={() => setIsAuthOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenClientSelector={() => {
@@ -853,6 +898,40 @@ export default function App() {
           isMatching={isMatching}
           activeTabTitle={getTabTitle()}
           currentUser={currentUser}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebarCollapse={toggleSidebarCollapse}
+          onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+        />
+
+        {/* Global Horizontal App Tab Bar for Instant 1-Click View Switching & Focus Mode */}
+        <AppTabBar
+          activeTab={activeTab}
+          setActiveTab={(tab) => {
+            if (tab === 'import') {
+              setIsUploadOpen(true);
+            } else if (tab === 'manual_recon') {
+              setIsManualReconOpen(true);
+            } else if (tab === 'manage_registers') {
+              setIsManageRegistersOpen(true);
+            } else if (tab === 'ai_audit') {
+              setIsAiAuditOpen(true);
+            } else if (tab === 'settings') {
+              setIsSettingsOpen(true);
+            } else {
+              setActiveTab(tab);
+            }
+          }}
+          language={language}
+          counts={{
+            missing2b: purchaseRecon.summary.missingIn2bCount,
+            mismatches: purchaseRecon.summary.mismatchCount + purchaseRecon.summary.significantDiscrepancyCount,
+          }}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebarCollapse={toggleSidebarCollapse}
+          isFocusMode={isFocusMode}
+          onToggleFocusMode={toggleFocusMode}
+          onOpenManualRecon={() => setIsManualReconOpen(true)}
+          onOpenManageRegisters={() => setIsManageRegistersOpen(true)}
         />
 
         {/* Scrollable View Area */}
@@ -938,24 +1017,26 @@ export default function App() {
 
           {/* GSTR-1 Returns, Table 12 HSN Summary, Table 7 B2CS & JSON Generator */}
           {activeTab === 'gstr1_summary' && (
-            <Gstr1SummaryView
-              salesInvoices={salesData}
-              gstr1Invoices={gstr1Data}
-              hsnItems={hsnSummaryData}
-              b2csItems={b2csSummaryData}
-              companyGstin={companyGstin}
-              selectedFY={selectedPeriod}
-              selectedMonth={selectedMonth}
-              language={language}
-              onOpenUpload={handleOpenUploadWithTab}
-              onUpdateHsnItems={handleUpdateHsnData}
-              onUpdateB2csItems={handleUpdateB2csData}
-            />
+            <div className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 pb-12">
+              <Gstr1SummaryView
+                salesInvoices={salesData}
+                gstr1Invoices={gstr1Data}
+                hsnItems={hsnSummaryData}
+                b2csItems={b2csSummaryData}
+                companyGstin={companyGstin}
+                selectedFY={selectedPeriod}
+                selectedMonth={selectedMonth}
+                language={language}
+                onOpenUpload={handleOpenUploadWithTab}
+                onUpdateHsnItems={handleUpdateHsnData}
+                onUpdateB2csItems={handleUpdateB2csData}
+              />
+            </div>
           )}
 
           {/* GSTIN Status & PAN-to-GSTIN Verification Engine (Single, Bulk & Excel Reports) */}
           {activeTab === 'gst_verification' && (
-            <div className="p-6">
+            <div className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 pb-12">
               <GstVerificationView
                 language={language}
                 onNavigateToAccounting={() => setActiveTab('accounting')}
@@ -967,6 +1048,16 @@ export default function App() {
                 }}
               />
             </div>
+          )}
+
+          {/* GST Legal AI Advisory & Courtroom-Ready Notice Drafter */}
+          {activeTab === 'gst_legal_bot' && (
+            <GstLegalAdvisorView
+              language={language}
+              companyGstin={companyGstin}
+              companyName={currentUser?.companyName || 'Acme Technologies India Pvt Ltd'}
+              preloadedQuery={preloadedLegalQuery}
+            />
           )}
 
           {activeTab === 'discrepancy_report' && (
@@ -1005,45 +1096,51 @@ export default function App() {
 
           {/* Accounting, Ledgers, P&L & Balance Sheet */}
           {activeTab === 'accounting' && (
-            <AccountingView
-              purchases={booksData.length > 0 ? booksData : []}
-              sales={accountingSales}
-              bankTransactions={accountingBankTxns}
-              onUpdateSales={handleUpdateSales}
-              onUpdateBankTransactions={handleUpdateBankTxns}
-              onClearData={handleClearAccountingData}
-              onImportFromGst={handleImportFromGstSales}
-              canImportGst={salesData.length > 0 || gstr1Data.length > 0}
-              onOpenAddSale={handleOpenAddSale}
-              onOpenEditSale={handleOpenEditSale}
-              onDeleteSale={handleDeleteSale}
-              onOpenAddBank={handleOpenAddBank}
-              onOpenEditBank={handleOpenEditBank}
-              onDeleteBank={handleDeleteBank}
-              onNavigateToTemplates={() => setActiveTab('templates')}
-              companyGstin={companyGstin}
-              selectedPeriod={selectedPeriod}
-              currentUser={currentUser}
-              language={language}
-              isAdmin={currentUser?.role === 'admin'}
-            />
+            <div className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 pb-12">
+              <AccountingView
+                purchases={booksData.length > 0 ? booksData : []}
+                sales={accountingSales}
+                bankTransactions={accountingBankTxns}
+                onUpdateSales={handleUpdateSales}
+                onUpdateBankTransactions={handleUpdateBankTxns}
+                onClearData={handleClearAccountingData}
+                onImportFromGst={handleImportFromGstSales}
+                canImportGst={salesData.length > 0 || gstr1Data.length > 0}
+                onOpenAddSale={handleOpenAddSale}
+                onOpenEditSale={handleOpenEditSale}
+                onDeleteSale={handleDeleteSale}
+                onOpenAddBank={handleOpenAddBank}
+                onOpenEditBank={handleOpenEditBank}
+                onDeleteBank={handleDeleteBank}
+                onNavigateToTemplates={() => setActiveTab('templates')}
+                companyGstin={companyGstin}
+                selectedPeriod={selectedPeriod}
+                currentUser={currentUser}
+                language={language}
+                isAdmin={currentUser?.role === 'admin'}
+              />
+            </div>
           )}
 
           {/* Templates Hub */}
           {activeTab === 'templates' && (
-            <TemplatesView
-              language={language}
-              onOpenUpload={handleOpenUploadWithTab}
-            />
+            <div className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 pb-12">
+              <TemplatesView
+                language={language}
+                onOpenUpload={handleOpenUploadWithTab}
+              />
+            </div>
           )}
 
           {/* Admin Dashboard */}
           {activeTab === 'admin_dashboard' && currentUser && (
-            <AdminDashboardView
-              currentUser={currentUser}
-              language={language}
-              onOpenUserProfile={() => setIsProfileOpen(true)}
-            />
+            <div className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 pb-12">
+              <AdminDashboardView
+                currentUser={currentUser}
+                language={language}
+                onOpenUserProfile={() => setIsProfileOpen(true)}
+              />
+            </div>
           )}
         </main>
       </div>
@@ -1300,6 +1397,19 @@ export default function App() {
           language={language}
         />
       )}
+
+      {/* Global Floating GST Legal AI Assistant Widget */}
+      <GstChatbotWidget
+        language={language}
+        companyGstin={companyGstin}
+        companyName={currentUser?.companyName || 'Acme Technologies India Pvt Ltd'}
+        onOpenFullStudio={(preloaded) => {
+          if (preloaded) {
+            setPreloadedLegalQuery(preloaded);
+          }
+          setActiveTab('gst_legal_bot');
+        }}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Filter,
@@ -18,6 +18,12 @@ import {
   Sliders,
   Database,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  AlignJustify,
+  List,
 } from 'lucide-react';
 import { ReconItem, ReconMatchStatus, Language } from '../types';
 import { translations } from '../utils/translations';
@@ -67,6 +73,14 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'diff'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [pageSize, setPageSize] = useState<number | 'ALL'>(25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isDenseView, setIsDenseView] = useState(false);
+
+  // Reset current page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery, items.length, selectedFY, selectedMonth]);
 
   const monthlyStats = getMonthlyBreakdown(items, selectedFY, selectedMonth);
 
@@ -196,8 +210,20 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
 
   const selectedItemsList = filteredItems.filter((i) => selectedIds.has(i.id));
 
+  // Pagination calculation
+  const totalPages = pageSize === 'ALL' ? 1 : Math.max(1, Math.ceil(filteredItems.length / (typeof pageSize === 'number' ? pageSize : 25)));
+  const displayItems = useMemo(() => {
+    if (pageSize === 'ALL') return filteredItems;
+    const size = typeof pageSize === 'number' ? pageSize : 25;
+    const start = (currentPage - 1) * size;
+    return filteredItems.slice(start, start + size);
+  }, [filteredItems, currentPage, pageSize]);
+
+  const startIndex = pageSize === 'ALL' ? 0 : (currentPage - 1) * (typeof pageSize === 'number' ? pageSize : 25);
+  const endIndex = pageSize === 'ALL' ? filteredItems.length : Math.min(filteredItems.length, startIndex + (typeof pageSize === 'number' ? pageSize : 25));
+
   return (
-    <div id="recon-table-view" className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl xl:max-w-7xl 2xl:max-w-[1500px] mx-auto pb-16">
+    <div id="recon-table-view" className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 space-y-3 pb-12">
       {/* Monthly Period Management Bar */}
       <MonthlyPeriodBar
         selectedFY={selectedFY}
@@ -208,133 +234,152 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
         totalPeriodInvoices={items.length}
       />
 
-      {/* View Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h3 className="text-xl font-bold text-[#1A2E25] tracking-tight">{title}</h3>
-          <p className="text-xs text-[#738276] mt-0.5">
-            {language === 'hi'
-              ? 'प्रत्येक इनवॉइस का विस्तृत मिलान, विसंगति विश्लेषण और सप्लायर फॉलोअप'
-              : 'Detailed invoice level reconciliation, discrepancy audit trail, and legal compliance checks.'}
-          </p>
-        </div>
-
-        {/* Search & Actions */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="relative">
-            <Search className="w-4 h-4 text-[#738276] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              id="recon-search-input"
-              type="text"
-              placeholder="Search Vendor, GSTIN, Invoice No..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="text-xs bg-white border border-[#E0E4DE] pl-9 pr-4 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8DA173] w-56 sm:w-64 shadow-xs text-[#2D362E]"
-            />
+      {/* Sticky Filter & Search Control Toolbar */}
+      <div className="sticky top-0 z-20 bg-[#F7F8F6]/95 backdrop-blur-xs pt-1 pb-2 space-y-2 border-b border-[#E0E4DE]">
+        {/* Top Header Row */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+          <div>
+            <h3 className="text-lg sm:text-xl font-bold text-[#1A2E25] tracking-tight">{title}</h3>
+            <p className="text-xs text-[#738276]">
+              {language === 'hi'
+                ? 'प्रत्येक इनवॉइस का विस्तृत मिलान, विसंगति विश्लेषण और सप्लायर फॉलोअप'
+                : 'Detailed invoice reconciliation, discrepancy audit trail, and legal compliance checks.'}
+            </p>
           </div>
 
-          {onOpenManualRecon && (
+          {/* Search, Action Buttons & Density Toggle */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-[#738276] absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                id="recon-search-input"
+                type="text"
+                placeholder="Search Vendor, GSTIN, Inv..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="text-xs bg-white border border-[#E0E4DE] pl-8 pr-3 py-1.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8DA173] w-48 sm:w-56 shadow-2xs text-[#2D362E]"
+              />
+            </div>
+
+            {/* Density Toggle (Comfortable vs Dense Ledger) */}
             <button
-              id="btn-tbl-manual-recon"
               type="button"
-              onClick={onOpenManualRecon}
-              className="px-3 py-2 bg-[#2D4A3E] text-white rounded-lg text-xs font-bold hover:bg-[#1A2E25] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
-              title="Run manual reconciliation with custom MMYYYY periods like 022022 to 022026"
-            >
-              <Sliders className="w-3.5 h-3.5 text-[#8DA173]" />
-              <span className="hidden sm:inline">Manual Recon Studio</span>
-              <span className="text-[10px] px-1.5 py-0.2 bg-[#8DA173] text-white rounded font-mono font-bold">
-                022022-26
-              </span>
-            </button>
-          )}
-
-          {onOpenManageRegisters && (
-            <button
-              id="btn-tbl-manage-registers"
-              type="button"
-              onClick={onOpenManageRegisters}
-              className="px-3 py-2 bg-white border border-[#E0E4DE] hover:bg-[#F2F5F3] text-[#2D4A3E] rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
-              title="Manage stored Purchase Register & GSTR-2B"
-            >
-              <Database className="w-3.5 h-3.5 text-[#5C7243]" />
-              <span className="hidden md:inline">Stored Registers</span>
-            </button>
-          )}
-
-          {selectedIds.size > 0 && onDeleteRecordsBatch && (
-            <button
-              id="btn-bulk-delete-invoices"
-              type="button"
-              onClick={() => {
-                const booksIds: string[] = [];
-                const gstr2bIds: string[] = [];
-                selectedItemsList.forEach((item) => {
-                  if (item.booksRecord?.id) booksIds.push(item.booksRecord.id);
-                  if (item.gstr2bRecord?.id) gstr2bIds.push(item.gstr2bRecord.id);
-                });
-                const allIds = Array.from(new Set([...booksIds, ...gstr2bIds]));
-                if (allIds.length > 0) {
-                  onDeleteRecordsBatch(allIds, isSalesRecon ? 'books' : 'both');
-                  setSelectedIds(new Set());
-                }
-              }}
-              className="px-3 py-2 bg-[#FFF2F0] hover:bg-[#FFEAE6] border border-[#FFCCC7] text-[#C75D4E] rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete ({selectedIds.size})</span>
-            </button>
-          )}
-
-          {selectedIds.size > 0 && (
-            <button
-              id="btn-bulk-vendor-notice"
-              onClick={() => onBulkNotice(selectedItemsList)}
-              className="px-3.5 py-2 bg-[#D9A14E] text-white rounded-lg text-xs font-bold hover:bg-[#C28C3D] transition-colors flex items-center gap-1.5 shadow-xs"
-            >
-              <Mail className="w-3.5 h-3.5" />
-              <span>Bulk Notice ({selectedIds.size})</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-[#E0E4DE]">
-        {statusTabs.map((tab) => {
-          const isActive = statusFilter === tab.id;
-          return (
-            <button
-              key={tab.id}
-              id={`tab-filter-${tab.id}`}
-              onClick={() => setStatusFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-2 ${
-                isActive
-                  ? 'bg-[#2D4A3E] text-white shadow-xs'
-                  : 'bg-white text-[#738276] hover:bg-[#F1F3EE] hover:text-[#2D4A3E] border border-[#E0E4DE]'
+              id="btn-toggle-density"
+              onClick={() => setIsDenseView(!isDenseView)}
+              className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
+                isDenseView
+                  ? 'bg-[#2D4A3E] text-white border-[#2D4A3E]'
+                  : 'bg-white border-[#E0E4DE] text-[#56655A] hover:bg-[#F1F3EE]'
               }`}
+              title={isDenseView ? 'Switch to Comfortable View' : 'Switch to Compact / Dense Ledger View'}
             >
-              <span>{tab.label}</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  isActive ? 'bg-[#8DA173] text-white' : 'bg-[#F1F3EE] text-[#738276]'
+              {isDenseView ? <AlignJustify className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isDenseView ? 'Dense' : 'Spacious'}</span>
+            </button>
+
+            {onOpenManualRecon && (
+              <button
+                id="btn-tbl-manual-recon"
+                type="button"
+                onClick={onOpenManualRecon}
+                className="px-2.5 py-1.5 bg-[#2D4A3E] text-white rounded-lg text-xs font-bold hover:bg-[#1A2E25] transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                title="Run manual reconciliation with custom MMYYYY periods like 022022 to 022026"
+              >
+                <Sliders className="w-3.5 h-3.5 text-[#8DA173]" />
+                <span className="hidden sm:inline">Manual Recon</span>
+                <span className="text-[9px] px-1 rounded bg-[#8DA173] text-white font-mono font-bold">
+                  022022-26
+                </span>
+              </button>
+            )}
+
+            {onOpenManageRegisters && (
+              <button
+                id="btn-tbl-manage-registers"
+                type="button"
+                onClick={onOpenManageRegisters}
+                className="px-2.5 py-1.5 bg-white border border-[#E0E4DE] hover:bg-[#F2F5F3] text-[#2D4A3E] rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                title="Manage stored Purchase Register & GSTR-2B"
+              >
+                <Database className="w-3.5 h-3.5 text-[#5C7243]" />
+                <span className="hidden md:inline">Registers</span>
+              </button>
+            )}
+
+            {selectedIds.size > 0 && onDeleteRecordsBatch && (
+              <button
+                id="btn-bulk-delete-invoices"
+                type="button"
+                onClick={() => {
+                  const booksIds: string[] = [];
+                  const gstr2bIds: string[] = [];
+                  selectedItemsList.forEach((item) => {
+                    if (item.booksRecord?.id) booksIds.push(item.booksRecord.id);
+                    if (item.gstr2bRecord?.id) gstr2bIds.push(item.gstr2bRecord.id);
+                  });
+                  const allIds = Array.from(new Set([...booksIds, ...gstr2bIds]));
+                  if (allIds.length > 0) {
+                    onDeleteRecordsBatch(allIds, isSalesRecon ? 'books' : 'both');
+                    setSelectedIds(new Set());
+                  }
+                }}
+                className="px-2.5 py-1.5 bg-[#FFF2F0] hover:bg-[#FFEAE6] border border-[#FFCCC7] text-[#C75D4E] rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete ({selectedIds.size})</span>
+              </button>
+            )}
+
+            {selectedIds.size > 0 && (
+              <button
+                id="btn-bulk-vendor-notice"
+                onClick={() => onBulkNotice(selectedItemsList)}
+                className="px-3 py-1.5 bg-[#D9A14E] text-white rounded-lg text-xs font-bold hover:bg-[#C28C3D] transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Bulk Notice ({selectedIds.size})</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Filter Tabs Bar */}
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+          {statusTabs.map((tab) => {
+            const isActive = statusFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={`tab-filter-${tab.id}`}
+                onClick={() => setStatusFilter(tab.id)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                  isActive
+                    ? 'bg-[#2D4A3E] text-white shadow-xs font-bold'
+                    : 'bg-white text-[#738276] hover:bg-[#F1F3EE] hover:text-[#2D4A3E] border border-[#E0E4DE]'
                 }`}
               >
-                {tab.count}
-              </span>
-            </button>
-          );
-        })}
+                <span>{tab.label}</span>
+                <span
+                  className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
+                    isActive ? 'bg-[#8DA173] text-white' : 'bg-[#F1F3EE] text-[#738276]'
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Main Table Card (Natural Tones) */}
-      <div className="bg-white rounded-2xl border border-[#E0E4DE] shadow-xs overflow-hidden flex flex-col">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-xl border border-[#E0E4DE] shadow-2xs overflow-hidden flex flex-col">
+        <div className="overflow-x-auto max-h-[calc(100vh-250px)] min-h-[300px]">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-[#F7F8F6] text-[#738276] text-[11px] uppercase tracking-wider border-b border-[#E0E4DE]">
+            <thead className="sticky top-0 z-10 bg-[#EDF1EA] text-[#425246] text-[11px] uppercase tracking-wider border-b border-[#D8DFD5] shadow-2xs">
               <tr>
-                <th className="px-4 py-3 w-10 text-center">
-                  <button onClick={toggleSelectAll} className="text-[#738276] hover:text-[#2D4A3E]">
+                <th className="px-3 py-2.5 w-10 text-center">
+                  <button onClick={toggleSelectAll} className="text-[#738276] hover:text-[#2D4A3E] cursor-pointer">
                     {selectedIds.size > 0 && selectedIds.size === filteredItems.length ? (
                       <CheckSquare className="w-4 h-4 text-[#8DA173]" />
                     ) : (
@@ -343,7 +388,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                   </button>
                 </th>
                 <th
-                  className="px-4 py-3 font-semibold cursor-pointer hover:text-[#2D4A3E]"
+                  className="px-3 py-2.5 font-bold cursor-pointer hover:text-[#2D4A3E]"
                   onClick={() => {
                     setSortBy('date');
                     setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -354,12 +399,12 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="px-5 py-3 font-semibold">{t.invNumber}</th>
-                <th className="px-6 py-3 font-semibold">{isSalesRecon ? 'Customer / Buyer GSTIN' : t.supplierGstin}</th>
-                <th className="px-5 py-3 font-semibold">{isSalesRecon ? 'Sales Register' : t.booksAmount}</th>
-                <th className="px-5 py-3 font-semibold">{isSalesRecon ? 'GSTR-1 Return' : t.gstr2bAmount}</th>
+                <th className="px-4 py-2.5 font-bold">{t.invNumber}</th>
+                <th className="px-4 py-2.5 font-bold">{isSalesRecon ? 'Customer / Buyer GSTIN' : t.supplierGstin}</th>
+                <th className="px-4 py-2.5 font-bold">{isSalesRecon ? 'Sales Register' : t.booksAmount}</th>
+                <th className="px-4 py-2.5 font-bold">{isSalesRecon ? 'GSTR-1 Return' : t.gstr2bAmount}</th>
                 <th
-                  className="px-5 py-3 font-semibold cursor-pointer hover:text-[#2D4A3E]"
+                  className="px-4 py-2.5 font-bold cursor-pointer hover:text-[#2D4A3E]"
                   onClick={() => {
                     setSortBy('diff');
                     setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -370,12 +415,12 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                     <ArrowUpDown className="w-3 h-3" />
                   </div>
                 </th>
-                <th className="px-5 py-3 font-semibold">{t.matchStatus}</th>
-                <th className="px-5 py-3 font-semibold text-right">{t.actions}</th>
+                <th className="px-4 py-2.5 font-bold">{t.matchStatus}</th>
+                <th className="px-4 py-2.5 font-bold text-right">{t.actions}</th>
               </tr>
             </thead>
             <tbody className="text-xs divide-y divide-[#F1F3EE]">
-              {filteredItems.length === 0 ? (
+              {displayItems.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-[#738276]">
                     <p className="text-sm font-medium">No invoices match the selected filter.</p>
@@ -385,7 +430,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredItems.map((item) => {
+                displayItems.map((item) => {
                   const isSelected = selectedIds.has(item.id);
                   const isExact = item.matchStatus === 'EXACT_MATCH';
                   const isFuzzy = item.matchStatus === 'FUZZY_MATCH';
@@ -396,6 +441,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                   const isIneligible = item.matchStatus === 'INELIGIBLE_ITC';
 
                   const date = item.booksRecord?.invoiceDate || item.gstr2bRecord?.invoiceDate || '—';
+                  const rowPadding = isDenseView ? 'py-1.5' : 'py-3';
 
                   return (
                     <tr
@@ -405,10 +451,10 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                       }`}
                     >
                       {/* Checkbox */}
-                      <td className="px-4 py-3.5 text-center">
+                      <td className={`px-3 ${rowPadding} text-center`}>
                         <button
                           onClick={() => toggleSelectItem(item.id)}
-                          className="text-[#738276] hover:text-[#2D4A3E]"
+                          className="text-[#738276] hover:text-[#2D4A3E] cursor-pointer"
                         >
                           {isSelected ? (
                             <CheckSquare className="w-4 h-4 text-[#8DA173]" />
@@ -419,12 +465,12 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                       </td>
 
                       {/* Date */}
-                      <td className="px-4 py-3.5 font-mono text-[#738276] whitespace-nowrap">
+                      <td className={`px-3 ${rowPadding} font-mono text-[#738276] whitespace-nowrap`}>
                         {date}
                       </td>
 
                       {/* Invoice Number */}
-                      <td className="px-5 py-3.5 font-mono font-medium text-[#2D362E]">
+                      <td className={`px-4 ${rowPadding} font-mono font-medium text-[#2D362E]`}>
                         <div>{item.invoiceNumber}</div>
                         {isFuzzy && (
                           <div className="text-[10px] text-[#8DA173] font-sans">
@@ -434,8 +480,8 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                       </td>
 
                       {/* Vendor & GSTIN */}
-                      <td className="px-6 py-3.5">
-                        <div className="font-semibold text-[#2D362E] truncate max-w-[220px]">
+                      <td className={`px-4 ${rowPadding}`}>
+                        <div className="font-semibold text-[#2D362E] truncate max-w-[200px] sm:max-w-[260px]">
                           {item.vendorName}
                         </div>
                         <div className="text-[10px] text-[#738276] font-mono flex items-center gap-1">
@@ -449,7 +495,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                       </td>
 
                       {/* Books Amount */}
-                      <td className="px-5 py-3.5">
+                      <td className={`px-4 ${rowPadding}`}>
                         {item.booksRecord ? (
                           <div>
                             <div className="font-semibold text-[#2D362E]">
@@ -465,7 +511,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                       </td>
 
                       {/* GSTR-2B Amount */}
-                      <td className="px-5 py-3.5">
+                      <td className={`px-4 ${rowPadding}`}>
                         {item.gstr2bRecord ? (
                           <div>
                             <div
@@ -485,7 +531,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                       </td>
 
                       {/* Variance */}
-                      <td className="px-5 py-3.5 font-mono text-[11px]">
+                      <td className={`px-4 ${rowPadding} font-mono text-[11px]`}>
                         {item.discrepancy?.totalDiff !== 0 && item.discrepancy?.totalDiff !== undefined ? (
                           <span
                             className={`font-semibold ${
@@ -505,70 +551,70 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                       </td>
 
                       {/* Status Tag */}
-                      <td className="px-5 py-3.5">
+                      <td className={`px-4 ${rowPadding}`}>
                         {isExact && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#EBF2E4] text-[#2D4A3E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#EBF2E4] text-[#2D4A3E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3 text-[#8DA173]" />
                             Exact Match
                           </span>
                         )}
                         {item.matchStatus === 'FUZZY_GSTIN_MATCH' && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#EEF2FF] text-[#4F46E5] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#EEF2FF] text-[#4F46E5] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <Sparkles className="w-3 h-3 text-[#4F46E5]" />
                             Fuzzy GSTIN ({item.matchConfidence}%)
                           </span>
                         )}
                         {item.matchStatus === 'PARTIAL_MATCH' && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#F2F6ED] text-[#5C7243] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#F2F6ED] text-[#5C7243] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3 text-[#5C7243]" />
                             Partial Match ({item.matchConfidence}%)
                           </span>
                         )}
                         {item.matchStatus === 'SIGNIFICANT_DISCREPANCY' && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#FFF2F0] text-[#C75D4E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#FFF2F0] text-[#C75D4E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3 text-[#C75D4E]" />
-                            Significant Discrepancy
+                            Discrepancy
                           </span>
                         )}
                         {isValDiff && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#FFF8EE] text-[#D9A14E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#FFF8EE] text-[#D9A14E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3 text-[#D9A14E]" />
                             Value Diff
                           </span>
                         )}
                         {isHeadDiff && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#FFF8EE] text-[#D9A14E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#FFF8EE] text-[#D9A14E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3 text-[#D9A14E]" />
-                            Head Mismatch
+                            Head Diff
                           </span>
                         )}
                         {isMiss2B && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#FCF0EE] text-[#C75D4E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#FCF0EE] text-[#C75D4E] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <TrendingDown className="w-3 h-3 text-[#C75D4E]" />
                             {isSalesRecon ? 'Missing in GSTR-1' : 'Missing in 2B'}
                           </span>
                         )}
                         {isMissBooks && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#EDF3F8] text-[#2D5A88] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#EDF3F8] text-[#2D5A88] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <FileQuestion className="w-3 h-3 text-[#2D5A88]" />
-                            {isSalesRecon ? 'Missing in Sales Register' : 'Missing in Books'}
+                            {isSalesRecon ? 'Missing in Sales' : 'Missing in Books'}
                           </span>
                         )}
                         {isIneligible && (
-                          <span style={{ height: '32.6458px' }} className="px-2.5 py-0.8 bg-[#F7F2EE] text-[#8E6E53] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 bg-[#F7F2EE] text-[#8E6E53] text-[10px] font-bold rounded uppercase tracking-wide inline-flex items-center gap-1">
                             <HelpCircle className="w-3 h-3 text-[#8E6E53]" />
-                            Ineligible ITC
+                            Ineligible
                           </span>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                      <td className={`px-4 ${rowPadding} text-right whitespace-nowrap`}>
                         <div className="flex items-center justify-end gap-1">
                           <button
                             id={`btn-tbl-view-${item.id}`}
                             onClick={() => onViewItem(item)}
-                            className="p-1.5 text-[#738276] hover:text-[#2D4A3E] hover:bg-[#F1F3EE] rounded transition-colors"
+                            className="p-1.5 text-[#738276] hover:text-[#2D4A3E] hover:bg-[#F1F3EE] rounded transition-colors cursor-pointer"
                             title="Inspect & Compare"
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -577,7 +623,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                             <button
                               id={`btn-tbl-notify-${item.id}`}
                               onClick={() => onOpenNotice(item)}
-                              className="p-1.5 text-[#D9A14E] hover:text-white hover:bg-[#D9A14E] rounded transition-colors"
+                              className="p-1.5 text-[#D9A14E] hover:text-white hover:bg-[#D9A14E] rounded transition-colors cursor-pointer"
                               title={isSalesRecon ? 'Generate GSTR-1 Notice' : 'Generate Notice to Vendor'}
                             >
                               <Mail className="w-3.5 h-3.5" />
@@ -590,7 +636,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                                 const booksId = item.booksRecord?.id;
                                 const g2bId = item.gstr2bRecord?.id;
                                 if (booksId && g2bId && onDeleteRecordsBatch) {
-                                  onDeleteRecordsBatch([booksId, g2bId], 'both');
+                                  onDeleteRecordsBatch([booksId, g2bId], isSalesRecon ? 'books' : 'both');
                                 } else if (booksId) {
                                   onDeleteRecordSingular(booksId, 'books');
                                 } else if (g2bId) {
@@ -613,17 +659,82 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
           </table>
         </div>
 
-        {/* Footer Summary */}
-        <div className="p-4 border-t border-[#E0E4DE] bg-[#FDFDFC] flex items-center justify-between text-xs text-[#738276]">
-          <span>
-            Showing <strong className="text-[#2D362E]">{filteredItems.length}</strong> of{' '}
-            {items.length} records
-          </span>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px]">
-              Tolerances: Value ±₹2.00 | Tax ±₹1.50
+        {/* Footer Summary & Pagination Controls */}
+        <div className="p-3 border-t border-[#E0E4DE] bg-[#FDFDFC] flex flex-wrap items-center justify-between gap-3 text-xs text-[#738276]">
+          <div className="flex items-center gap-3">
+            <span>
+              Showing <strong className="text-[#2D362E]">{filteredItems.length === 0 ? 0 : startIndex + 1}</strong>–
+              <strong className="text-[#2D362E]">{endIndex}</strong> of{' '}
+              <strong className="text-[#2D362E]">{filteredItems.length}</strong> filtered (Total {items.length})
             </span>
+
+            {/* Rows Per Page Selector */}
+            <div className="flex items-center gap-1.5 border-l border-[#E0E4DE] pl-3">
+              <span className="text-[11px] text-[#738276]">Rows per page:</span>
+              <select
+                id="recon-page-size-select"
+                value={pageSize}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPageSize(val === 'ALL' ? 'ALL' : Number(val));
+                  setCurrentPage(1);
+                }}
+                className="bg-white border border-[#E0E4DE] text-xs font-bold text-[#2D4A3E] px-2 py-0.5 rounded cursor-pointer focus:outline-none"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value="ALL">All ({filteredItems.length})</option>
+              </select>
+            </div>
           </div>
+
+          {/* Pagination Jump Buttons */}
+          {pageSize !== 'ALL' && totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="p-1 rounded text-[#738276] hover:text-[#2D4A3E] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="First Page"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1 rounded text-[#738276] hover:text-[#2D4A3E] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <span className="px-2 py-0.5 text-xs font-bold text-[#2D4A3E] bg-[#EDF3EF] rounded">
+                Page {currentPage} of {totalPages}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1 rounded text-[#738276] hover:text-[#2D4A3E] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="p-1 rounded text-[#738276] hover:text-[#2D4A3E] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="Last Page"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

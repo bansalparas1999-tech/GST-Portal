@@ -10,6 +10,7 @@ import {
   verifyGstinLive,
   getWhitebooksConfig,
 } from "./server/whitebooksService";
+import { processGstLegalAdvisorQuery } from "./server/gstLegalAdvisorService";
 
 dotenv.config();
 
@@ -1989,6 +1990,40 @@ app.post("/api/gst/live-pan-mapping", async (req, res) => {
     return res.status(500).json({
       success: false,
       error: err.message || "Live PAN mapping error",
+    });
+  }
+});
+
+// 4. GST Legal AI Advisory & Notice Reply Drafting Endpoint
+app.post("/api/ai/gst-legal-advisor", async (req, res) => {
+  try {
+    const {
+      queryType = "advisory",
+      userPrompt = "",
+      attachment,
+      chatHistory = [],
+      companyGstin = "27AABCA1234F1Z8",
+      companyName = "The Taxpayer Enterprise",
+    } = req.body;
+
+    const result = await processGstLegalAdvisorQuery({
+      queryType,
+      userPrompt,
+      attachment,
+      chatHistory,
+      companyGstin,
+      companyName,
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err: any) {
+    console.error("GST Legal Advisor Route Error:", err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || "Failed to process GST legal query",
     });
   }
 });

@@ -813,3 +813,106 @@ export type GstVerificationSubTab =
   | 'pan_single'
   | 'pan_bulk';
 
+/**
+ * GST Legal AI Chatbot Types
+ */
+export type GstLegalQueryType =
+  | 'notice_reply'
+  | 'advisory'
+  | 'hsn_rate'
+  | 'general_qa';
+
+export interface GstNoticeAttachment {
+  name: string;
+  size: number;
+  type: string;
+  base64?: string;
+  extractedText?: string;
+}
+
+export interface GstLegalStatutoryProvision {
+  sectionOrRule: string;
+  act: string;
+  interpretation: string;
+}
+
+export interface GstLegalNotificationCircular {
+  number: string;
+  date?: string;
+  subject: string;
+  relevance: string;
+}
+
+export interface GstLegalPrecedent {
+  caseTitle: string;
+  court: string;
+  year?: string;
+  keyPrinciple: string;
+}
+
+export interface GstDraftNoticeReply {
+  noticeType?: string; // e.g. "DRC-01", "ASMT-10", "DRC-01A", "SCN Sec 73/74/74A"
+  dinOrRefNo?: string;
+  issuingAuthority?: string;
+  taxPeriod?: string;
+  taxDemanded?: {
+    igst?: number;
+    cgst?: number;
+    sgst?: number;
+    cess?: number;
+    interest?: number;
+    penalty?: number;
+    total?: number;
+  };
+  subjectLine: string;
+  preliminaryObjections: string[];
+  factualSubmissions: string[];
+  paraWiseRebuttal: string;
+  groundsOfDefense: string[];
+  prayerClause: string;
+  verificationText: string;
+  annexuresList: string[];
+  fullPleadingText: string;
+}
+
+export interface GstHsnRateDetails {
+  hsnCode: string;
+  description: string;
+  cgstRate: number;
+  sgstRate: number;
+  igstRate: number;
+  cessRate?: number;
+  effectiveNotification?: string;
+  conditionsOrExceptions?: string;
+  scheduleCategory?: string;
+}
+
+export interface GstLegalAdviceResponse {
+  queryType: GstLegalQueryType;
+  title: string;
+  executiveSummary: string;
+  fullOpinion: string;
+  statutoryProvisions: GstLegalStatutoryProvision[];
+  notificationsAndCirculars: GstLegalNotificationCircular[];
+  judicialPrecedents: GstLegalPrecedent[];
+  draftNoticeReply?: GstDraftNoticeReply;
+  hsnRateDetails?: GstHsnRateDetails;
+  actionableRecommendations: string[];
+  riskRating?: 'LOW' | 'MEDIUM' | 'HIGH';
+  isAiGenerated: boolean;
+  groundingSources?: Array<{ title: string; url?: string }>;
+  disclaimer: string;
+}
+
+export interface GstChatMessage {
+  id: string;
+  sender: 'user' | 'assistant';
+  timestamp: string;
+  queryType: GstLegalQueryType;
+  text: string;
+  attachment?: GstNoticeAttachment;
+  response?: GstLegalAdviceResponse;
+  isLoading?: boolean;
+  error?: string;
+}
+

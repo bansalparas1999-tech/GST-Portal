@@ -91,7 +91,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       : 0;
 
   return (
-    <div id="dashboard-view-container" className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8 max-w-6xl xl:max-w-7xl 2xl:max-w-[1440px] mx-auto pb-16">
+    <div id="dashboard-view-container" className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 space-y-4 pb-12">
       {/* Month & Financial Year Interactive Strip */}
       <MonthlyPeriodBar
         selectedFY={selectedFY}

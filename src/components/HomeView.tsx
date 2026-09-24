@@ -57,7 +57,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const activeCompanyName = currentUser?.companyName || 'Apex Advisory Practice';
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl xl:max-w-7xl 2xl:max-w-[1400px] mx-auto space-y-8 pb-16">
+    <div className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-4 space-y-6 pb-12">
       {/* Hero Welcome Banner */}
       <section className="bg-white rounded-3xl border border-[#E0E4DE] p-6 sm:p-8 md:p-10 shadow-xs relative overflow-hidden">
         {/* Subtle decorative background graphic */}
@@ -166,6 +166,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <span>GST Portal Vault & OCR</span>
                   </button>
                 )}
+
+                <button
+                  id="btn-home-gst-legal-advisor"
+                  onClick={() => onNavigate('gst_legal_bot')}
+                  className="px-4 sm:px-5 py-3 bg-[#2D5A43] hover:bg-[#234734] text-white rounded-xl text-xs md:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer shadow-2xs"
+                >
+                  <Scale className="w-4 h-4 text-emerald-300" />
+                  <span>GST Legal AI & Notice Drafter</span>
+                </button>
 
                 {totalInvoicesCount > 0 && (
                   <button
@@ -403,6 +412,34 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
               <div className="text-xs font-bold text-[#2D4A3E] flex items-center gap-1 pt-1">
                 <span>Open Verification Tool</span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+
+            {/* Tile 8: GST Legal AI & Notice Drafter */}
+            <div
+              id="tile-home-gst-legal-bot"
+              onClick={() => onNavigate('gst_legal_bot')}
+              className="bg-white p-5 rounded-2xl border-2 border-[#2D5A43]/40 hover:border-[#2D5A43] shadow-xs hover:shadow-md transition-all cursor-pointer space-y-3 group bg-gradient-to-br from-white to-[#F7FBF8]"
+            >
+              <div className="flex items-center justify-between">
+                <div className="w-10 h-10 rounded-xl bg-[#2D5A43] text-white transition-colors flex items-center justify-center shadow-xs">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#2D5A43] text-white">
+                  Notice AI & SCN
+                </span>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#1A2E25] group-hover:text-[#2D5A43]">
+                  GST Legal AI & Notice Drafter
+                </h3>
+                <p className="text-xs text-[#56655A] mt-1 leading-relaxed">
+                  Upload DRC-01, ASMT-10 or SCN to generate formal court replies, query amended GST acts, and get HSN/SAC rate opinions.
+                </p>
+              </div>
+              <div className="text-xs font-bold text-[#2D5A43] flex items-center gap-1 pt-1">
+                <span>Draft Reply & Legal Opinion</span>
                 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>

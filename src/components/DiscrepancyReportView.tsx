@@ -191,7 +191,7 @@ export const DiscrepancyReportView: React.FC<DiscrepancyReportViewProps> = ({
   );
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl xl:max-w-7xl 2xl:max-w-[1500px] mx-auto space-y-6 pb-16">
+    <div className="w-full max-w-[1750px] mx-auto px-2 sm:px-4 lg:px-6 py-3 space-y-4 pb-12">
       {/* Period Selector Bar */}
       <MonthlyPeriodBar
         selectedFY={selectedFY}
