@@ -25,6 +25,8 @@ import {
   Receipt,
   ShoppingBag,
   Layers,
+  Archive,
+  FolderArchive,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
@@ -39,6 +41,13 @@ import {
   B2csSummaryItem,
 } from '../types';
 import { parseCsvData, parseGstr2bJson, parseGstr1Json } from '../utils/gstEngine';
+import {
+  parseGstr2bZipFile,
+  parseMultipleGstr2bJsonFiles,
+  isZipFile,
+  ZipGstr2bParseResult,
+  generateSampleMultiPeriodGstr2bZip,
+} from '../utils/zipGstr2bParser';
 import {
   MEESHO_FORWARD_SALES_HEADERS,
   MEESHO_FORWARD_SAMPLE_DATA,
@@ -134,6 +143,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   // Files Tab State (Purchase vs 2B)
   const [booksFile, setBooksFile] = useState<File | null>(null);
   const [gstr2bFile, setGstr2bFile] = useState<File | null>(null);
+  const [filesGstr2bZipSummary, setFilesGstr2bZipSummary] = useState<ZipGstr2bParseResult | null>(null);
+
+  // GSTR-2B Bulk ZIP Tab State
+  const [zipParseResult, setZipParseResult] = useState<ZipGstr2bParseResult | null>(null);
+  const [isProcessingZip, setIsProcessingZip] = useState(false);
+  const [zipImportMode, setZipImportMode] = useState<'append' | 'replace'>('append');
+  const [zipSuccessMsg, setZipSuccessMsg] = useState('');
+  const [isDragOverZip, setIsDragOverZip] = useState(false);
 
   // Sales Register Import Tab State
   const [salesRegisterFile, setSalesRegisterFile] = useState<File | null>(null);
@@ -178,6 +195,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       setSalesSyncSuccess('');
       setSalesSuccessMsg('');
       setHsnSuccessMsg('');
+      setZipSuccessMsg('');
+      setFilesGstr2bZipSummary(null);
     }
   }, [isOpen, initialTab, isAdmin]);
 
@@ -202,6 +221,22 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     });
   };
 
+  // Merge new records with existing records so multi-period datasets accumulate and stay forever
+  const mergeInvoices = (existing: InvoiceRecord[], incoming: InvoiceRecord[]): InvoiceRecord[] => {
+    if (!existing || existing.length === 0) return incoming;
+    if (!incoming || incoming.length === 0) return existing;
+    const map = new Map<string, InvoiceRecord>();
+    existing.forEach((item) => {
+      const key = `${item.gstin}_${item.invoiceNumber}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+      map.set(key || item.id, item);
+    });
+    incoming.forEach((item) => {
+      const key = `${item.gstin}_${item.invoiceNumber}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+      map.set(key || item.id, item);
+    });
+    return Array.from(map.values());
+  };
+
   // Handler for Scanned PDF Invoices Extractor
   const handleScannedInvoicesExtracted = (
     invoices: InvoiceRecord[],
@@ -211,7 +246,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   ) => {
     let finalBooks: InvoiceRecord[] = [];
     if (action === 'append' && existingBooks.length > 0) {
-      finalBooks = [...existingBooks, ...invoices];
+      finalBooks = mergeInvoices(existingBooks, invoices);
     } else {
       finalBooks = invoices;
     }
@@ -251,10 +286,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
       // Process GSTR-2B File
       if (gstr2bFile) {
-        const text = await gstr2bFile.text();
-        if (gstr2bFile.name.endsWith('.json')) {
+        if (isZipFile(gstr2bFile)) {
+          const zipRes = await parseGstr2bZipFile(gstr2bFile, gstr2bFile.name);
+          parsedGstr2b = zipRes.allRecords;
+        } else if (gstr2bFile.name.endsWith('.json')) {
+          const text = await gstr2bFile.text();
           parsedGstr2b = parseGstr2bJson(text);
         } else {
+          const text = await gstr2bFile.text();
           const parsed = Papa.parse<Record<string, string>>(text, {
             header: true,
             skipEmptyLines: true,
@@ -263,12 +302,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         }
       }
 
-      const finalBooks = enrichRecords(
-        parsedBooks.length > 0 ? parsedBooks : existingBooks
-      );
-      const finalGstr2b = enrichRecords(
-        parsedGstr2b.length > 0 ? parsedGstr2b : existingGstr2b
-      );
+      const enrichedBooks = enrichRecords(parsedBooks);
+      const enriched2b = enrichRecords(parsedGstr2b);
+
+      const finalBooks = parsedBooks.length > 0
+        ? mergeInvoices(existingBooks, enrichedBooks)
+        : existingBooks;
+      const finalGstr2b = parsedGstr2b.length > 0
+        ? mergeInvoices(existingGstr2b, enriched2b)
+        : existingGstr2b;
 
       onDataLoaded(finalBooks, finalGstr2b, targetFY, targetMonth);
       onClose();
@@ -315,8 +357,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         return;
       }
 
-      const finalBooks = enrichRecords(books.length > 0 ? books : existingBooks);
-      const finalG2b = enrichRecords(g2b.length > 0 ? g2b : existingGstr2b);
+      const enrichedBooks = enrichRecords(books);
+      const enriched2b = enrichRecords(g2b);
+
+      const finalBooks = books.length > 0 ? mergeInvoices(existingBooks, enrichedBooks) : existingBooks;
+      const finalG2b = g2b.length > 0 ? mergeInvoices(existingGstr2b, enriched2b) : existingGstr2b;
 
       onDataLoaded(finalBooks, finalG2b, targetFY, targetMonth);
       onClose();
@@ -816,6 +861,97 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     }
   };
 
+  // Handle GSTR-2B ZIP File Upload and Extraction
+  const handleProcessZipFile = async (file: File) => {
+    setIsProcessingZip(true);
+    setErrorMsg('');
+    setZipSuccessMsg('');
+    try {
+      const result = await parseGstr2bZipFile(file, file.name);
+      if (result.totalFilesFound === 0) {
+        throw new Error('No .json files found in this ZIP archive.');
+      }
+      setZipParseResult(result);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(`Failed to unpack ZIP archive: ${err.message || 'Corrupt or unsupported ZIP format'}`);
+    } finally {
+      setIsProcessingZip(false);
+    }
+  };
+
+  // Handle Multiple GSTR-2B JSON Files Selection
+  const handleProcessMultipleFiles = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+    setIsProcessingZip(true);
+    setErrorMsg('');
+    setZipSuccessMsg('');
+    try {
+      const result = await parseMultipleGstr2bJsonFiles(fileArray);
+      if (result.totalFilesFound === 0) {
+        throw new Error('No valid GSTR-2B JSON or ZIP files detected in selection.');
+      }
+      setZipParseResult(result);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(`Failed to process selected files: ${err.message}`);
+    } finally {
+      setIsProcessingZip(false);
+    }
+  };
+
+  // Handle Generating and Loading Sample Multi-Period GSTR-2B ZIP (022022 - 022026)
+  const handleLoadSampleZip = async () => {
+    setIsProcessingZip(true);
+    setErrorMsg('');
+    setZipSuccessMsg('');
+    try {
+      const { blob, fileName } = await generateSampleMultiPeriodGstr2bZip();
+      const result = await parseGstr2bZipFile(blob, fileName);
+      setZipParseResult(result);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(`Failed to generate sample multi-period ZIP: ${err.message}`);
+    } finally {
+      setIsProcessingZip(false);
+    }
+  };
+
+  // Confirm and Import Unpacked Invoices into GSTR-2B Register
+  const handleConfirmZipImport = () => {
+    if (!zipParseResult || zipParseResult.allRecords.length === 0) {
+      setErrorMsg('No valid GSTR-2B invoices found to import.');
+      return;
+    }
+
+    try {
+      const newRecords = zipParseResult.allRecords;
+      let final2b: InvoiceRecord[] = [];
+
+      if (zipImportMode === 'append') {
+        final2b = mergeInvoices(existingGstr2b, newRecords);
+      } else {
+        final2b = newRecords;
+      }
+
+      const activeFY = zipParseResult.financialYearsDetected[0] || targetFY;
+      const activeMonth = zipParseResult.periodsDetected[0]?.slice(0, 2) || targetMonth;
+
+      onDataLoaded(existingBooks, final2b, activeFY, activeMonth);
+
+      setZipSuccessMsg(
+        `Successfully imported ${newRecords.length} invoices across ${zipParseResult.periodsDetected.length} periods from ${zipParseResult.zipFileName}!`
+      );
+
+      setTimeout(() => {
+        onClose();
+      }, 1400);
+    } catch (e: any) {
+      setErrorMsg(`Import failed: ${e.message}`);
+    }
+  };
+
   const importOptions = [
     {
       id: 'pdf' as ImportTabType,
@@ -824,6 +960,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       icon: FileText,
       badge: 'AI Vision',
       badgeColor: 'bg-[#8DA173] text-white',
+    },
+    {
+      id: 'zip_2b' as ImportTabType,
+      label: 'Bulk GSTR-2B ZIP Archive',
+      subtitle: 'Multi-period ZIP with various 2B JSONs',
+      icon: Archive,
+      badge: 'Multi-Period',
+      badgeColor: 'bg-[#2D4A3E] text-white',
     },
     {
       id: 'files' as ImportTabType,
@@ -1024,6 +1168,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             </div>
           )}
 
+          {zipSuccessMsg && (
+            <div className="p-3 rounded-xl bg-[#EDF3EF] border border-[#BBD3C5] text-[#2D4A3E] text-xs flex items-center gap-2 font-bold animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-[#8DA173] shrink-0" />
+              <span>{zipSuccessMsg}</span>
+            </div>
+          )}
+
           {/* TAB 1: SCANNED INVOICES PDF/IMAGE OCR */}
           {activeSubTab === 'pdf' && (
             <ScannedInvoicesPdfParser
@@ -1038,13 +1189,330 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             />
           )}
 
-          {/* TAB 2: EXCEL / CSV / JSON FILES (PURCHASE REGISTER & GSTR-2B) */}
+          {/* TAB 2: BULK GSTR-2B ZIP ARCHIVE (MULTI-PERIOD) */}
+          {activeSubTab === 'zip_2b' && (
+            <div className="space-y-4">
+              <div className="bg-[#FAFBF9] p-4 rounded-xl border border-[#E0E4DE] flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#2D4A3E] text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <Archive className="w-4 h-4 text-[#8DA173]" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-[#1A2E25]">
+                      Bulk GSTR-2B ZIP Archive Importer (Multi-Period Engine)
+                    </h4>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#EDF3EF] text-[#2D4A3E] font-bold border border-[#D5E2D9]">
+                      Multi-Month .ZIP & JSONs
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#56655A] leading-relaxed">
+                    Upload a <strong>.zip file containing various monthly GSTR-2B JSONs</strong> downloaded from the GST Portal (e.g. from <code>022022</code> to <code>022026</code>). All JSONs are recursively unpacked, their return periods are detected, and invoices stay forever in your User ID.
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Actions Bar */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs text-[#738276] font-medium">
+                  Upload your downloaded GST portal ZIP or test with preloaded multi-period samples:
+                </span>
+                <button
+                  type="button"
+                  onClick={handleLoadSampleZip}
+                  disabled={isProcessingZip}
+                  className="px-3 py-1.5 bg-[#F1F3EE] hover:bg-[#E0E4DE] text-[#2D4A3E] rounded-lg text-xs font-bold transition-all border border-[#D5E2D9] cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#8DA173]" />
+                  <span>Try Sample Multi-Period ZIP (022022 - 022026)</span>
+                </button>
+              </div>
+
+              {/* Drag and Drop Upload Zone */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragOverZip(true);
+                }}
+                onDragLeave={() => setIsDragOverZip(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragOverZip(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    if (e.dataTransfer.files.length === 1 && isZipFile(e.dataTransfer.files[0])) {
+                      handleProcessZipFile(e.dataTransfer.files[0]);
+                    } else {
+                      handleProcessMultipleFiles(e.dataTransfer.files);
+                    }
+                  }
+                }}
+                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${
+                  isDragOverZip
+                    ? 'border-[#2D4A3E] bg-[#EDF3EF]/60'
+                    : 'border-[#CBD5CD] bg-[#FDFDFC] hover:bg-[#F7F8F6]'
+                }`}
+              >
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-[#EDF3EF] flex items-center justify-center text-[#2D4A3E]">
+                  <Archive className="w-6 h-6 text-[#8DA173]" />
+                </div>
+                <h5 className="text-sm font-bold text-[#1A2E25]">
+                  Drop your GSTR-2B .ZIP file here, or browse
+                </h5>
+                <p className="text-xs text-[#738276] mt-1 max-w-md mx-auto">
+                  Supports .zip archives containing multiple <code>returns_MMYYYY_GSTR2B_*.json</code> files or multiple selected <code>.json</code> files.
+                </p>
+
+                <div className="mt-4 flex items-center justify-center gap-3">
+                  <label className="px-4 py-2 bg-[#2D4A3E] hover:bg-[#1E362C] text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
+                    <Upload className="w-3.5 h-3.5 text-[#8DA173]" />
+                    <span>Select GSTR-2B .ZIP File</span>
+                    <input
+                      type="file"
+                      accept=".zip,.json"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          if (e.target.files.length === 1 && isZipFile(e.target.files[0])) {
+                            handleProcessZipFile(e.target.files[0]);
+                          } else {
+                            handleProcessMultipleFiles(e.target.files);
+                          }
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Processing Spinner */}
+              {isProcessingZip && (
+                <div className="p-6 rounded-xl border border-[#E0E4DE] bg-[#FAFBF9] text-center space-y-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-[#8DA173] mx-auto" />
+                  <p className="text-xs font-bold text-[#2D4A3E]">
+                    Unpacking ZIP archive & parsing monthly GSTR-2B JSON statements...
+                  </p>
+                  <p className="text-[11px] text-[#738276]">
+                    Extracting B2B invoices, CDNR credit/debit notes & auto-detecting tax periods
+                  </p>
+                </div>
+              )}
+
+              {/* ZIP Analysis & Content Breakdown */}
+              {zipParseResult && (
+                <div className="border border-[#BBD3C5] bg-white rounded-xl p-4 shadow-xs space-y-4 animate-in fade-in duration-200">
+                  {/* File Header */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-[#E0E4DE] gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-[#EDF3EF] flex items-center justify-center text-[#2D4A3E]">
+                        <FolderArchive className="w-4 h-4 text-[#8DA173]" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-[#1A2E25] flex items-center gap-2">
+                          <span>{zipParseResult.zipFileName}</span>
+                          <span className="text-[10px] text-[#738276] font-mono">
+                            ({(zipParseResult.zipFileSize / 1024).toFixed(1)} KB)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#56655A] mt-0.5">
+                          Unpacked {zipParseResult.totalFilesFound} JSON files • Recipient GSTIN:{' '}
+                          <strong className="text-[#2D4A3E]">
+                            {zipParseResult.recipientGstinsDetected[0] || companyGstin}
+                          </strong>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setZipParseResult(null)}
+                        className="text-xs text-[#738276] hover:text-[#C75D4E] underline cursor-pointer"
+                      >
+                        Clear & Choose Another File
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* KPI Summary Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="bg-[#FAFBF9] border border-[#E0E4DE] p-2.5 rounded-lg">
+                      <div className="text-[10px] uppercase font-bold text-[#738276]">Files Unpacked</div>
+                      <div className="text-base font-extrabold text-[#2D4A3E] mt-0.5">
+                        {zipParseResult.validJsonCount}{' '}
+                        <span className="text-xs font-normal text-[#738276]">/ {zipParseResult.totalFilesFound}</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#FAFBF9] border border-[#E0E4DE] p-2.5 rounded-lg">
+                      <div className="text-[10px] uppercase font-bold text-[#738276]">Periods Range</div>
+                      <div className="text-xs font-extrabold text-[#2D4A3E] mt-1 truncate" title={zipParseResult.periodsDetected.join(', ')}>
+                        {zipParseResult.periodsDetected[0] || 'N/A'} → {zipParseResult.periodsDetected[zipParseResult.periodsDetected.length - 1] || 'N/A'}
+                        <div className="text-[10px] font-normal text-[#8DA173]">
+                          ({zipParseResult.periodsDetected.length} Months)
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#FAFBF9] border border-[#E0E4DE] p-2.5 rounded-lg">
+                      <div className="text-[10px] uppercase font-bold text-[#738276]">Inward Invoices</div>
+                      <div className="text-base font-extrabold text-[#2D4A3E] mt-0.5">
+                        {zipParseResult.totalInvoices}
+                      </div>
+                    </div>
+
+                    <div className="bg-[#FAFBF9] border border-[#E0E4DE] p-2.5 rounded-lg">
+                      <div className="text-[10px] uppercase font-bold text-[#738276]">Total Inward ITC</div>
+                      <div className="text-base font-extrabold text-[#8DA173] mt-0.5">
+                        ₹{zipParseResult.totalTax.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detected Periods Badges */}
+                  <div>
+                    <div className="text-[11px] font-bold text-[#2D4A3E] mb-1.5 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-[#8DA173]" />
+                      <span>Detected Return Periods ({zipParseResult.periodsDetected.length}):</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {zipParseResult.periodsDetected.map((p) => {
+                        const count = zipParseResult.fileSummaries
+                          .filter((f) => f.periodMMYYYY === p)
+                          .reduce((sum, f) => sum + f.invoiceCount, 0);
+                        return (
+                          <span
+                            key={p}
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-[#EDF3EF] border border-[#D5E2D9] text-[#2D4A3E] font-medium"
+                          >
+                            <strong>{p}</strong>
+                            <span className="text-[10px] text-[#738276]">({count} inv)</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Table of Files Inside ZIP */}
+                  <div className="border border-[#E0E4DE] rounded-lg overflow-hidden">
+                    <div className="bg-[#FAFBF9] px-3 py-2 border-b border-[#E0E4DE] flex items-center justify-between text-xs">
+                      <span className="font-bold text-[#2D4A3E]">JSON Files Breakdown in Archive</span>
+                      <span className="text-[11px] text-[#738276]">
+                        {zipParseResult.fileSummaries.length} files extracted
+                      </span>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-[#F7F8F6] text-[#56655A] text-[10px] uppercase font-bold sticky top-0 border-b border-[#E0E4DE]">
+                          <tr>
+                            <th className="px-3 py-1.5">File Name</th>
+                            <th className="px-3 py-1.5">Period</th>
+                            <th className="px-3 py-1.5">FY</th>
+                            <th className="px-3 py-1.5 text-right">Invoices</th>
+                            <th className="px-3 py-1.5 text-right">Taxable (₹)</th>
+                            <th className="px-3 py-1.5 text-right">Total Tax (₹)</th>
+                            <th className="px-3 py-1.5 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E0E4DE]">
+                          {zipParseResult.fileSummaries.map((fileItem, idx) => (
+                            <tr key={idx} className="hover:bg-[#FAFBF9]">
+                              <td className="px-3 py-1.5 font-mono text-[11px] text-[#2D4A3E] truncate max-w-xs" title={fileItem.fileName}>
+                                {fileItem.fileName}
+                              </td>
+                              <td className="px-3 py-1.5 text-[#56655A]">
+                                <span className="px-1.5 py-0.5 rounded bg-[#EDF3EF] text-[#2D4A3E] text-[10px] font-bold">
+                                  {fileItem.periodMMYYYY || 'Auto'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-1.5 text-[#56655A] text-[11px]">
+                                {fileItem.financialYear || 'N/A'}
+                              </td>
+                              <td className="px-3 py-1.5 text-right font-bold text-[#2D4A3E]">
+                                {fileItem.invoiceCount}
+                              </td>
+                              <td className="px-3 py-1.5 text-right text-[#56655A]">
+                                ₹{fileItem.taxableValue.toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-3 py-1.5 text-right font-bold text-[#8DA173]">
+                                ₹{fileItem.totalTax.toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-3 py-1.5 text-center">
+                                {fileItem.status === 'SUCCESS' ? (
+                                  <span className="text-[10px] font-bold text-[#2D4A3E] bg-[#EDF3EF] px-1.5 py-0.5 rounded">
+                                    Loaded
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-[#C75D4E] bg-[#FCF0EE] px-1.5 py-0.5 rounded">
+                                    {fileItem.status}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Register Persistence Option */}
+                  <div className="bg-[#FAFBF9] border border-[#E0E4DE] p-3 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-[#8DA173]" />
+                      <span className="font-bold text-[#2D4A3E]">Target Register Storage:</span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="zipImportMode"
+                          checked={zipImportMode === 'append'}
+                          onChange={() => setZipImportMode('append')}
+                          className="w-3.5 h-3.5 text-[#2D4A3E]"
+                        />
+                        <span className="text-xs text-[#56655A]">
+                          <strong>Append & Accumulate</strong> (Keep multi-period records forever in this user ID)
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="zipImportMode"
+                          checked={zipImportMode === 'replace'}
+                          onChange={() => setZipImportMode('replace')}
+                          className="w-3.5 h-3.5 text-[#2D4A3E]"
+                        />
+                        <span className="text-xs text-[#56655A]">Replace GSTR-2B</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Import Button */}
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleConfirmZipImport}
+                      className="px-5 py-2.5 bg-[#2D4A3E] hover:bg-[#1E362C] text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-[#8DA173]" />
+                      <span>
+                        Import {zipParseResult.totalInvoices} Invoices ({zipParseResult.periodsDetected.length} Periods) into GSTR-2B Register
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: EXCEL / CSV / JSON FILES (PURCHASE REGISTER & GSTR-2B) */}
           {activeSubTab === 'files' && (
             <div className="space-y-4">
               <div className="bg-[#FAFBF9] p-4 rounded-xl border border-[#E0E4DE] flex items-center gap-3">
                 <FileSpreadsheet className="w-5 h-5 text-[#8DA173] shrink-0" />
                 <div className="text-xs text-[#56655A]">
-                  Upload your internal <strong>Purchase Register (Excel/CSV)</strong> exported from Tally, Zoho, SAP or Busy, and your official <strong>GSTR-2B (JSON/CSV)</strong> downloaded from the GST Portal.
+                  Upload your internal <strong>Purchase Register (Excel/CSV)</strong> exported from Tally, Zoho, SAP or Busy, and your official <strong>GSTR-2B (JSON/CSV/ZIP)</strong> downloaded from the GST Portal.
                 </div>
               </div>
 
@@ -1083,25 +1551,59 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   <div className="flex items-center gap-2">
                     <FileCode className="w-4 h-4 text-[#8DA173]" />
                     <span className="text-xs font-bold text-[#2D4A3E]">
-                      2. Official GST Portal GSTR-2B Statement
+                      2. Official GST Portal GSTR-2B Statement (ZIP, JSON or CSV)
                     </span>
                   </div>
-                  <span className="text-[10px] text-[#738276] font-mono">.json, .csv</span>
+                  <span className="text-[10px] text-[#738276] font-mono">.zip, .json, .csv</span>
                 </div>
                 <p className="text-xs text-[#738276] mb-3">
-                  Upload official GSTR-2B auto-drafted ITC statement downloaded from GST Portal (JSON or CSV).
+                  Upload official GSTR-2B JSON, CSV, or a <strong>.ZIP archive</strong> containing various monthly GSTR-2B JSONs.
                 </p>
                 <input
                   id="input-gstr2b-file"
                   type="file"
-                  accept=".json,.csv"
-                  onChange={(e) => setGstr2bFile(e.target.files?.[0] || null)}
+                  accept=".zip,.json,.csv"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0] || null;
+                    setGstr2bFile(file);
+                    setFilesGstr2bZipSummary(null);
+                    if (file && isZipFile(file)) {
+                      try {
+                        const res = await parseGstr2bZipFile(file, file.name);
+                        setFilesGstr2bZipSummary(res);
+                      } catch (err) {
+                        console.warn('Zip preview err:', err);
+                      }
+                    }
+                  }}
                   className="block w-full text-xs text-[#56655A] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#EDF3EF] file:text-[#2D4A3E] hover:file:bg-[#D5E2D9] cursor-pointer"
                 />
                 {gstr2bFile && (
                   <div className="mt-2 text-xs font-semibold text-[#2D4A3E] flex items-center gap-1.5">
                     <CheckCircle className="w-3.5 h-3.5 text-[#8DA173]" />
                     <span>Selected: {gstr2bFile.name} ({(gstr2bFile.size / 1024).toFixed(1)} KB)</span>
+                  </div>
+                )}
+                {filesGstr2bZipSummary && (
+                  <div className="mt-2.5 p-2.5 rounded-lg bg-[#EDF3EF] border border-[#BBD3C5] text-xs text-[#2D4A3E] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Archive className="w-4 h-4 text-[#8DA173] shrink-0" />
+                      <span>
+                        <strong>ZIP Archive Detected:</strong> {filesGstr2bZipSummary.totalFilesFound} JSON files,{' '}
+                        {filesGstr2bZipSummary.totalInvoices} invoices across periods:{' '}
+                        <strong>{filesGstr2bZipSummary.periodsDetected.join(', ')}</strong>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setZipParseResult(filesGstr2bZipSummary);
+                        setActiveSubTab('zip_2b');
+                      }}
+                      className="text-[11px] underline font-bold text-[#2D4A3E] hover:text-[#1E362C] shrink-0 cursor-pointer"
+                    >
+                      View Detailed Breakdown →
+                    </button>
                   </div>
                 )}
               </div>
@@ -1647,6 +2149,32 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               className="px-5 py-2 bg-[#8DA173] hover:bg-[#7A8E61] text-white rounded-lg text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer"
             >
               {isProcessing ? 'Processing & Matching...' : 'Process & Reconcile'}
+            </button>
+          )}
+
+          {activeSubTab === 'zip_2b' && (
+            <button
+              id="btn-process-zip-import"
+              type="button"
+              onClick={handleConfirmZipImport}
+              disabled={isProcessingZip || !zipParseResult || zipParseResult.allRecords.length === 0}
+              className="px-5 py-2 bg-[#2D4A3E] hover:bg-[#1E362C] text-white rounded-lg text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-2"
+            >
+              {isProcessingZip ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Unpacking ZIP Archive...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#8DA173]" />
+                  <span>
+                    {zipParseResult
+                      ? `Import ${zipParseResult.totalInvoices} Invoices (${zipParseResult.periodsDetected.length} Periods)`
+                      : 'Upload & Unpack ZIP'}
+                  </span>
+                </>
+              )}
             </button>
           )}
 

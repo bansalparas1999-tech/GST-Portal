@@ -20,6 +20,7 @@ import {
   Lock,
   Scale,
   Layers,
+  Database,
 } from 'lucide-react';
 import { Language, UserProfile } from '../types';
 import { translations } from '../utils/translations';
@@ -75,6 +76,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'dashboard',
           label: t.dashboard,
           icon: LayoutDashboard,
+        },
+        {
+          id: 'manual_recon',
+          label: language === 'hi' ? 'मैन्युअल अवधि मिलान' : 'Manual Period Recon',
+          icon: SlidersHorizontal,
+          badge: '022022-26',
+          badgeColor: 'bg-[#2D4A3E] text-white',
+        },
+        {
+          id: 'manage_registers',
+          label: language === 'hi' ? 'स्थायी रजिस्टर प्रबंधन' : 'Manage Stored Registers',
+          icon: Database,
+          badge: 'User ID',
+          badgeColor: 'bg-[#8DA173] text-white',
         },
         {
           id: 'purchase_recon',

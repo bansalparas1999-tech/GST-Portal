@@ -15,6 +15,9 @@ import {
   Layers,
   CheckSquare,
   Square,
+  Sliders,
+  Database,
+  Trash2,
 } from 'lucide-react';
 import { ReconItem, ReconMatchStatus, Language } from '../types';
 import { translations } from '../utils/translations';
@@ -32,6 +35,10 @@ interface ReconTableViewProps {
   onOpenNotice: (item: ReconItem) => void;
   onBulkNotice: (items: ReconItem[]) => void;
   onManualMatch: (item: ReconItem) => void;
+  onOpenManualRecon?: () => void;
+  onOpenManageRegisters?: () => void;
+  onDeleteRecordSingular?: (id: string, source: 'books' | 'gstr2b') => void;
+  onDeleteRecordsBatch?: (ids: string[], source: 'books' | 'gstr2b') => void;
   title: string;
   isSalesRecon?: boolean;
 }
@@ -47,6 +54,10 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
   onOpenNotice,
   onBulkNotice,
   onManualMatch,
+  onOpenManualRecon,
+  onOpenManageRegisters,
+  onDeleteRecordSingular,
+  onDeleteRecordsBatch,
   title,
   isSalesRecon = false,
 }) => {
@@ -209,7 +220,7 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
         </div>
 
         {/* Search & Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <div className="relative">
             <Search className="w-4 h-4 text-[#738276] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -218,9 +229,62 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
               placeholder="Search Vendor, GSTIN, Invoice No..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="text-xs bg-white border border-[#E0E4DE] pl-9 pr-4 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8DA173] w-64 shadow-xs text-[#2D362E]"
+              className="text-xs bg-white border border-[#E0E4DE] pl-9 pr-4 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8DA173] w-56 sm:w-64 shadow-xs text-[#2D362E]"
             />
           </div>
+
+          {onOpenManualRecon && (
+            <button
+              id="btn-tbl-manual-recon"
+              type="button"
+              onClick={onOpenManualRecon}
+              className="px-3 py-2 bg-[#2D4A3E] text-white rounded-lg text-xs font-bold hover:bg-[#1A2E25] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Run manual reconciliation with custom MMYYYY periods like 022022 to 022026"
+            >
+              <Sliders className="w-3.5 h-3.5 text-[#8DA173]" />
+              <span className="hidden sm:inline">Manual Recon Studio</span>
+              <span className="text-[10px] px-1.5 py-0.2 bg-[#8DA173] text-white rounded font-mono font-bold">
+                022022-26
+              </span>
+            </button>
+          )}
+
+          {onOpenManageRegisters && (
+            <button
+              id="btn-tbl-manage-registers"
+              type="button"
+              onClick={onOpenManageRegisters}
+              className="px-3 py-2 bg-white border border-[#E0E4DE] hover:bg-[#F2F5F3] text-[#2D4A3E] rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              title="Manage stored Purchase Register & GSTR-2B"
+            >
+              <Database className="w-3.5 h-3.5 text-[#5C7243]" />
+              <span className="hidden md:inline">Stored Registers</span>
+            </button>
+          )}
+
+          {selectedIds.size > 0 && onDeleteRecordsBatch && (
+            <button
+              id="btn-bulk-delete-invoices"
+              type="button"
+              onClick={() => {
+                const booksIds: string[] = [];
+                const gstr2bIds: string[] = [];
+                selectedItemsList.forEach((item) => {
+                  if (item.booksRecord?.id) booksIds.push(item.booksRecord.id);
+                  if (item.gstr2bRecord?.id) gstr2bIds.push(item.gstr2bRecord.id);
+                });
+                const allIds = Array.from(new Set([...booksIds, ...gstr2bIds]));
+                if (allIds.length > 0) {
+                  onDeleteRecordsBatch(allIds, isSalesRecon ? 'books' : 'both');
+                  setSelectedIds(new Set());
+                }
+              }}
+              className="px-3 py-2 bg-[#FFF2F0] hover:bg-[#FFEAE6] border border-[#FFCCC7] text-[#C75D4E] rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete ({selectedIds.size})</span>
+            </button>
+          )}
 
           {selectedIds.size > 0 && (
             <button
@@ -517,6 +581,26 @@ export const ReconTableView: React.FC<ReconTableViewProps> = ({
                               title={isSalesRecon ? 'Generate GSTR-1 Notice' : 'Generate Notice to Vendor'}
                             >
                               <Mail className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {onDeleteRecordSingular && (
+                            <button
+                              id={`btn-tbl-delete-${item.id}`}
+                              onClick={() => {
+                                const booksId = item.booksRecord?.id;
+                                const g2bId = item.gstr2bRecord?.id;
+                                if (booksId && g2bId && onDeleteRecordsBatch) {
+                                  onDeleteRecordsBatch([booksId, g2bId], 'both');
+                                } else if (booksId) {
+                                  onDeleteRecordSingular(booksId, 'books');
+                                } else if (g2bId) {
+                                  onDeleteRecordSingular(g2bId, 'gstr2b');
+                                }
+                              }}
+                              className="p-1.5 text-[#738276] hover:text-[#C75D4E] hover:bg-[#FFF2F0] rounded transition-colors cursor-pointer"
+                              title="Delete this record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>

@@ -23,6 +23,8 @@ import { TemplatesView } from './components/TemplatesView';
 import { Gstr1SummaryView } from './components/Gstr1SummaryView';
 import { GstVerificationView } from './components/GstVerificationView';
 import { InvoiceEditorModal, InvoiceEditorMode } from './components/InvoiceEditorModal';
+import { ManualReconModal } from './components/ManualReconModal';
+import { ManageRegistersModal } from './components/ManageRegistersModal';
 import {
   InvoiceRecord,
   ReconItem,
@@ -56,7 +58,13 @@ import {
   saveUserReconciliationData,
   fetchUserReconciliationData,
   updateUserProfile,
+  saveUserPersistentRegisters,
+  fetchUserPersistentRegisters,
+  deleteUserInvoiceSingular,
+  deleteUserInvoicesBatch,
+  clearUserRegisterAll,
 } from './lib/firebase';
+import { generateMultiPeriodSampleData } from './utils/multiPeriodSampleData';
 
 export default function App() {
   const [language, setLanguage] = useState<Language>('en');
@@ -354,6 +362,74 @@ export default function App() {
   const [selectedItem, setSelectedItem] = useState<ReconItem | null>(null);
   const [selectedNoticeItems, setSelectedNoticeItems] = useState<ReconItem[]>([]);
 
+  // Manual Period Reconciliation Studio & Stored Registers Management Modals
+  const [isManualReconOpen, setIsManualReconOpen] = useState(false);
+  const [isManageRegistersOpen, setIsManageRegistersOpen] = useState(false);
+
+  // Singular & Batch Register Deletion Handlers (stay forever in that user ID)
+  const handleDeleteInvoiceSingular = async (id: string, source: 'books' | 'gstr2b' | 'both') => {
+    const uid = currentUser?.uid || 'user-default-session';
+    const res = await deleteUserInvoiceSingular(uid, id, source, booksData, gstr2bData);
+    setBooksData(res.books);
+    setGstr2bData(res.gstr2b);
+    if (currentUser?.uid && !currentUser.uid.startsWith('demo-')) {
+      await saveUserReconciliationData(
+        currentUser.uid,
+        res.books,
+        res.gstr2b,
+        tolerance,
+        companyGstin,
+        selectedPeriod,
+        selectedMonth
+      );
+    }
+  };
+
+  const handleDeleteInvoicesBatch = async (ids: string[], source: 'books' | 'gstr2b' | 'both') => {
+    const uid = currentUser?.uid || 'user-default-session';
+    const res = await deleteUserInvoicesBatch(uid, ids, source, booksData, gstr2bData);
+    setBooksData(res.books);
+    setGstr2bData(res.gstr2b);
+    if (currentUser?.uid && !currentUser.uid.startsWith('demo-')) {
+      await saveUserReconciliationData(
+        currentUser.uid,
+        res.books,
+        res.gstr2b,
+        tolerance,
+        companyGstin,
+        selectedPeriod,
+        selectedMonth
+      );
+    }
+  };
+
+  const handleClearRegistersAll = async (target: 'books' | 'gstr2b' | 'both') => {
+    const uid = currentUser?.uid || 'user-default-session';
+    const res = await clearUserRegisterAll(uid, target, booksData, gstr2bData);
+    setBooksData(res.books);
+    setGstr2bData(res.gstr2b);
+    if (currentUser?.uid && !currentUser.uid.startsWith('demo-')) {
+      await saveUserReconciliationData(
+        currentUser.uid,
+        res.books,
+        res.gstr2b,
+        tolerance,
+        companyGstin,
+        selectedPeriod,
+        selectedMonth
+      );
+    }
+  };
+
+  const handleLoadMultiPeriodSample = async () => {
+    const sample = generateMultiPeriodSampleData();
+    const uid = currentUser?.uid || 'user-default-session';
+    setBooksData(sample.books);
+    setGstr2bData(sample.gstr2b);
+    await saveUserPersistentRegisters(uid, sample.books, sample.gstr2b);
+    handleRunSmartMatch();
+  };
+
   const handleOpenUploadWithTab = (tab: ImportTabType = 'pdf') => {
     setUploadInitialTab(tab);
     setIsUploadOpen(true);
@@ -377,6 +453,13 @@ export default function App() {
           if (parsed.companyGstin && !savedActiveGstin) {
             setCompanyGstin(parsed.companyGstin);
           }
+          // Load permanent registers stored forever under this user ID
+          fetchUserPersistentRegisters(parsed.uid).then((res) => {
+            if (res.books.length > 0 || res.gstr2b.length > 0) {
+              setBooksData(res.books);
+              setGstr2bData(res.gstr2b);
+            }
+          }).catch(() => {});
         }
       } catch (e) {
         // ignore JSON parse error
@@ -395,12 +478,28 @@ export default function App() {
             localStorage.setItem('clear_gst_active_gstin', profile.companyGstin);
           }
 
-          // Load user-specific saved workspace data if available
-          const savedData = await fetchUserReconciliationData(profile.uid, selectedPeriod, selectedMonth);
-          if (savedData && savedData.booksRecords && savedData.booksRecords.length > 0) {
-            setBooksData(savedData.booksRecords);
-            if (savedData.gstr2bRecords) setGstr2bData(savedData.gstr2bRecords);
-            if (savedData.tolerance) setTolerance(savedData.tolerance);
+          // Load permanent registers stored forever under this user ID
+          const userRegisters = await fetchUserPersistentRegisters(profile.uid);
+          if (userRegisters.books.length > 0 || userRegisters.gstr2b.length > 0) {
+            setBooksData(userRegisters.books);
+            setGstr2bData(userRegisters.gstr2b);
+          } else {
+            // Check if user has explicitly cleared registers (cached as empty array)
+            const cachedBooks = localStorage.getItem(`clear_gst_books_${profile.uid}`);
+            const cachedGstr2b = localStorage.getItem(`clear_gst_gstr2b_${profile.uid}`);
+            const wasCleared = cachedBooks === '[]' && cachedGstr2b === '[]';
+            if (!wasCleared) {
+              // Load user-specific saved workspace data if available
+              const savedData = await fetchUserReconciliationData(profile.uid, selectedPeriod, selectedMonth);
+              if (savedData && savedData.booksRecords && savedData.booksRecords.length > 0) {
+                setBooksData(savedData.booksRecords);
+                if (savedData.gstr2bRecords) setGstr2bData(savedData.gstr2bRecords);
+                if (savedData.tolerance) setTolerance(savedData.tolerance);
+              }
+            } else {
+              setBooksData([]);
+              setGstr2bData([]);
+            }
           }
         } catch (err) {
           console.error('Failed to load profile:', err);
@@ -525,19 +624,23 @@ export default function App() {
 
   const t = translations[language];
 
-  // Auto-sync user data on change if logged in
+  // Auto-sync user data and permanent registers on change
   useEffect(() => {
-    if (currentUser && currentUser.uid && !currentUser.uid.startsWith('demo-') && booksData.length > 0) {
+    const uid = currentUser?.uid || 'user-default-session';
+    if (booksData.length > 0 || gstr2bData.length > 0) {
       const timer = setTimeout(() => {
-        saveUserReconciliationData(
-          currentUser.uid,
-          booksData,
-          gstr2bData,
-          tolerance,
-          companyGstin,
-          selectedPeriod,
-          selectedMonth
-        );
+        saveUserPersistentRegisters(uid, booksData, gstr2bData);
+        if (currentUser && currentUser.uid && !currentUser.uid.startsWith('demo-')) {
+          saveUserReconciliationData(
+            currentUser.uid,
+            booksData,
+            gstr2bData,
+            tolerance,
+            companyGstin,
+            selectedPeriod,
+            selectedMonth
+          );
+        }
       }, 1500);
       return () => clearTimeout(timer);
     }
@@ -684,6 +787,10 @@ export default function App() {
         setActiveTab={(tab) => {
           if (tab === 'import') {
             setIsUploadOpen(true);
+          } else if (tab === 'manual_recon') {
+            setIsManualReconOpen(true);
+          } else if (tab === 'manage_registers') {
+            setIsManageRegistersOpen(true);
           } else if (tab === 'ai_audit') {
             setIsAiAuditOpen(true);
           } else if (tab === 'settings') {
@@ -731,6 +838,10 @@ export default function App() {
           }}
           onOpenGstPortalLogin={() => setIsGstPortalLoginOpen(true)}
           onOpenGstIncognitoDriver={handleOpenGstIncognitoDriver}
+          onOpenManualRecon={() => setIsManualReconOpen(true)}
+          onOpenManageRegisters={() => setIsManageRegistersOpen(true)}
+          booksCount={booksData.length}
+          gstr2bCount={gstr2bData.length}
           companyGstin={companyGstin}
           activePan={selectedPan}
           activePanEntity={selectedPanEntity}
@@ -757,7 +868,11 @@ export default function App() {
               }}
               onOpenGstPortalLogin={() => setIsGstPortalLoginOpen(true)}
               onOpenGstIncognitoDriver={() => handleOpenGstIncognitoDriver()}
-              onNavigate={(tab) => setActiveTab(tab)}
+              onNavigate={(tab) => {
+                if (tab === 'manual_recon') setIsManualReconOpen(true);
+                else if (tab === 'manage_registers') setIsManageRegistersOpen(true);
+                else setActiveTab(tab);
+              }}
               onOpenUpload={handleOpenUploadWithTab}
               onOpenAuth={() => setIsAuthOpen(true)}
               totalInvoicesCount={totalInvoicesCount}
@@ -777,6 +892,10 @@ export default function App() {
               onOpenNotice={handleOpenNotice}
               onOpenAiAudit={() => setIsAiAuditOpen(true)}
               onOpenUpload={() => setIsUploadOpen(true)}
+              onOpenManualRecon={() => setIsManualReconOpen(true)}
+              onOpenManageRegisters={() => setIsManageRegistersOpen(true)}
+              booksCount={booksData.length}
+              gstr2bCount={gstr2bData.length}
             />
           )}
 
@@ -793,6 +912,10 @@ export default function App() {
               onOpenNotice={handleOpenNotice}
               onBulkNotice={handleBulkNotice}
               onManualMatch={handleViewItem}
+              onOpenManualRecon={() => setIsManualReconOpen(true)}
+              onOpenManageRegisters={() => setIsManageRegistersOpen(true)}
+              onDeleteRecordSingular={handleDeleteInvoiceSingular}
+              onDeleteRecordsBatch={handleDeleteInvoicesBatch}
             />
           )}
 
@@ -1133,6 +1256,48 @@ export default function App() {
             setIsProfileOpen(false);
             setIsAuthOpen(true);
           }}
+        />
+      )}
+
+      {/* Manual Period Reconciliation Studio Modal (e.g. 022022 to 022026) */}
+      {isManualReconOpen && (
+        <ManualReconModal
+          isOpen={isManualReconOpen}
+          onClose={() => setIsManualReconOpen(false)}
+          booksData={booksData}
+          gstr2bData={gstr2bData}
+          currentUser={currentUser}
+          companyGstin={companyGstin}
+          tolerance={tolerance}
+          language={language}
+          onDeleteInvoiceSingular={handleDeleteInvoiceSingular}
+          onDeleteInvoicesBatch={handleDeleteInvoicesBatch}
+          onLoadMultiPeriodSample={handleLoadMultiPeriodSample}
+          onOpenUpload={(tab?: ImportTabType) => {
+            setIsManualReconOpen(false);
+            handleOpenUploadWithTab(tab || 'zip_2b');
+          }}
+        />
+      )}
+
+      {/* Persistent User ID Stored Registers Manager Modal (Singular & Bulk Deletion) */}
+      {isManageRegistersOpen && (
+        <ManageRegistersModal
+          isOpen={isManageRegistersOpen}
+          onClose={() => setIsManageRegistersOpen(false)}
+          booksData={booksData}
+          gstr2bData={gstr2bData}
+          currentUser={currentUser}
+          companyGstin={companyGstin}
+          onDeleteSingular={handleDeleteInvoiceSingular}
+          onDeleteBatch={handleDeleteInvoicesBatch}
+          onClearAll={handleClearRegistersAll}
+          onOpenUpload={(tab?: ImportTabType) => {
+            setIsManageRegistersOpen(false);
+            handleOpenUploadWithTab(tab || 'zip_2b');
+          }}
+          onLoadMultiPeriodSample={handleLoadMultiPeriodSample}
+          language={language}
         />
       )}
     </div>

@@ -962,7 +962,12 @@ export function parseGstr2bJson(jsonData: any): InvoiceRecord[] {
   const records: InvoiceRecord[] = [];
   try {
     const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
-    const b2bList = data.b2b || data.data?.b2b || (Array.isArray(data) ? data : []);
+
+    // 1. Table 3: B2B Invoices & B2BA Amended Invoices
+    const b2bList = [
+      ...(data.b2b || data.data?.b2b || data.data?.docdata?.b2b || (Array.isArray(data) ? data : [])),
+      ...(data.b2ba || data.data?.b2ba || data.data?.docdata?.b2ba || []),
+    ];
 
     for (const b2bItem of b2bList) {
       const ctin = b2bItem.ctin || b2bItem.gstin || '';
@@ -1021,8 +1026,114 @@ export function parseGstr2bJson(jsonData: any): InvoiceRecord[] {
           reverseCharge: rchrg,
           itcAvailable,
           itcReason: inv.rsn || '',
+          invoiceType: 'B2B',
         });
       }
+    }
+
+    // 2. Table 3 / 4: CDNR (Credit/Debit Notes) & CDNRA (Amended Notes)
+    const cdnrList = [
+      ...(data.cdnr || data.data?.cdnr || data.data?.docdata?.cdnr || []),
+      ...(data.cdnra || data.data?.cdnra || data.data?.docdata?.cdnra || []),
+    ];
+
+    for (const cdnrItem of cdnrList) {
+      const ctin = cdnrItem.ctin || cdnrItem.gstin || '';
+      const vendorName = cdnrItem.trdNm || cdnrItem.tradeName || cdnrItem.lglNm || ctin;
+      const ntList = cdnrItem.nt || [];
+
+      for (const nt of ntList) {
+        const inum = String(nt.nt_num || nt.noteNumber || nt.inum || '');
+        const idt = nt.nt_dt || nt.noteDate || nt.idt || '';
+        const val = Number(nt.val || nt.noteValue || 0);
+        const pos = nt.pos || '';
+        const rchrg = nt.rchrg === 'Y';
+        const isCreditNote = nt.ntty === 'C';
+
+        let txval = 0;
+        let igst = 0;
+        let cgst = 0;
+        let sgst = 0;
+        let cess = 0;
+
+        if (Array.isArray(nt.items)) {
+          for (const item of nt.items) {
+            const itmdet = item.itm_det || item;
+            txval += Number(itmdet.txval || 0);
+            igst += Number(itmdet.iamt || 0);
+            cgst += Number(itmdet.camt || 0);
+            sgst += Number(itmdet.samt || 0);
+            cess += Number(itmdet.csamt || 0);
+          }
+        } else {
+          txval = Number(nt.taxableValue || val * 0.85);
+          igst = Number(nt.igst || 0);
+          cgst = Number(nt.cgst || 0);
+          sgst = Number(nt.sgst || 0);
+          cess = Number(nt.cess || 0);
+        }
+
+        const totalTax = igst + cgst + sgst + cess;
+        const itcAvailable = nt.itcavl !== 'N';
+
+        records.push({
+          id: `g2b-cdnr-${ctin}-${inum}-${Math.random().toString(36).substring(2, 7)}`,
+          source: 'gstr2b',
+          gstin: ctin,
+          vendorName,
+          invoiceNumber: inum,
+          rawInvoiceNumber: inum,
+          invoiceDate: parseDate(idt),
+          invoiceValue: val || txval + totalTax,
+          taxableValue: txval,
+          igst,
+          cgst,
+          sgst,
+          cess,
+          totalTax,
+          placeOfSupply: pos,
+          reverseCharge: rchrg,
+          itcAvailable,
+          itcReason: nt.rsn || (isCreditNote ? 'Credit Note' : 'Debit Note'),
+          invoiceType: isCreditNote ? 'Credit Note' : 'Debit Note',
+        });
+      }
+    }
+
+    // 3. Table 4: ISD Invoices
+    const isdList = data.isd?.doclist || data.data?.isd?.doclist || [];
+    for (const isdItem of isdList) {
+      const ctin = isdItem.ctin || isdItem.gstin || '';
+      const vendorName = isdItem.trdNm || isdItem.tradeName || ctin || 'ISD Unit';
+      const inum = String(isdItem.docnum || isdItem.inum || '');
+      const idt = isdItem.docdt || isdItem.idt || '';
+      const igst = Number(isdItem.iamt || 0);
+      const cgst = Number(isdItem.camt || 0);
+      const sgst = Number(isdItem.samt || 0);
+      const cess = Number(isdItem.csamt || 0);
+      const totalTax = igst + cgst + sgst + cess;
+
+      records.push({
+        id: `g2b-isd-${ctin}-${inum}-${Math.random().toString(36).substring(2, 7)}`,
+        source: 'gstr2b',
+        gstin: ctin,
+        vendorName,
+        invoiceNumber: inum,
+        rawInvoiceNumber: inum,
+        invoiceDate: parseDate(idt),
+        invoiceValue: totalTax,
+        taxableValue: 0,
+        igst,
+        cgst,
+        sgst,
+        cess,
+        totalTax,
+        placeOfSupply: '',
+        reverseCharge: false,
+        itcAvailable: isdItem.itcavl !== 'N',
+        itcReason: 'ISD Credit',
+        invoiceType: 'ISD',
+      });
     }
   } catch (e) {
     console.error('Failed to parse GSTR-2B JSON:', e);

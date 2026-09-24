@@ -124,6 +124,248 @@ export function getMonthShort(key: string): string {
 }
 
 /**
+ * Normalizes any date or period string to 6-digit MMYYYY (e.g. '022022', '2022-02', '14/02/2022' -> '022022')
+ */
+export function normalizePeriodToMMYYYY(val?: string): string {
+  if (!val) return '';
+  const clean = val.trim();
+
+  // Already 6-digit MMYYYY
+  if (/^\d{6}$/.test(clean)) {
+    const m = parseInt(clean.slice(0, 2), 10);
+    const y = parseInt(clean.slice(2), 10);
+    if (m >= 1 && m <= 12 && y >= 2015 && y <= 2035) {
+      return clean;
+    }
+  }
+
+  // YYYY-MM or YYYY-MM-DD
+  if (/^\d{4}-\d{2}/.test(clean)) {
+    const parts = clean.split('-');
+    const y = parts[0];
+    const m = parts[1];
+    return `${m}${y}`;
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{4}/.test(clean)) {
+    const sep = clean.includes('/') ? '/' : '-';
+    const parts = clean.split(sep);
+    const m = parseInt(parts[1], 10);
+    const y = parts[2];
+    const mm = m < 10 ? `0${m}` : `${m}`;
+    return `${mm}${y}`;
+  }
+
+  // Month-Year like "02/2022" or "02-2022"
+  if (/^\d{1,2}[/-]\d{4}$/.test(clean)) {
+    const sep = clean.includes('/') ? '/' : '-';
+    const parts = clean.split(sep);
+    const m = parseInt(parts[0], 10);
+    const y = parts[1];
+    const mm = m < 10 ? `0${m}` : `${m}`;
+    return `${mm}${y}`;
+  }
+
+  return '';
+}
+
+/**
+ * Computes a numeric comparison score for MMYYYY (year * 100 + month, e.g. '022022' -> 202202)
+ */
+export function mmyyyyToScore(mmyyyy?: string): number {
+  if (!mmyyyy) return 0;
+  const normalized = normalizePeriodToMMYYYY(mmyyyy);
+  if (normalized.length === 6) {
+    const m = parseInt(normalized.slice(0, 2), 10);
+    const y = parseInt(normalized.slice(2), 10);
+    return y * 100 + m;
+  }
+  return 0;
+}
+
+/**
+ * Converts numeric score (e.g. 202202) back to MMYYYY ('022022')
+ */
+export function scoreToMMYYYY(score: number): string {
+  if (!score || score < 201501) return '';
+  const y = Math.floor(score / 100);
+  const m = score % 100;
+  const mm = m < 10 ? `0${m}` : `${m}`;
+  return `${mm}${y}`;
+}
+
+/**
+ * Formats MMYYYY into a friendly human-readable label (e.g. '022022' -> 'Feb 2022 (022022)')
+ */
+export function formatMMYYYYLabel(mmyyyy?: string): string {
+  if (!mmyyyy) return 'All Periods';
+  const normalized = normalizePeriodToMMYYYY(mmyyyy);
+  if (normalized.length !== 6) return mmyyyy;
+  const m = normalized.slice(0, 2);
+  const y = normalized.slice(2);
+  const monthName = getMonthShort(m);
+  return `${monthName} ${y} (${normalized})`;
+}
+
+/**
+ * Extracts 6-digit MMYYYY period from an InvoiceRecord
+ */
+export function extractRecordPeriodMMYYYY(rec: InvoiceRecord): string {
+  if (rec.taxPeriod) {
+    const fromTaxPeriod = normalizePeriodToMMYYYY(rec.taxPeriod);
+    if (fromTaxPeriod) return fromTaxPeriod;
+  }
+  if (rec.invoiceDate) {
+    const fromDate = normalizePeriodToMMYYYY(rec.invoiceDate);
+    if (fromDate) return fromDate;
+  }
+  return '';
+}
+
+/**
+ * Checks if a period (or invoice record) falls in the range [fromMMYYYY, toMMYYYY]
+ */
+export function isPeriodInMMYYYYRange(
+  recordPeriodOrRecord: string | InvoiceRecord,
+  fromMMYYYY?: string,
+  toMMYYYY?: string
+): boolean {
+  const period =
+    typeof recordPeriodOrRecord === 'string'
+      ? normalizePeriodToMMYYYY(recordPeriodOrRecord)
+      : extractRecordPeriodMMYYYY(recordPeriodOrRecord);
+
+  if (!period) return true; // If no date/period is provided, keep to prevent data loss
+
+  const recordScore = mmyyyyToScore(period);
+  const fromScore = fromMMYYYY ? mmyyyyToScore(fromMMYYYY) : 0;
+  const toScore = toMMYYYY ? mmyyyyToScore(toMMYYYY) : 999999;
+
+  if (fromScore > 0 && recordScore < fromScore) return false;
+  if (toScore > 0 && recordScore > toScore) return false;
+
+  return true;
+}
+
+/**
+ * Filters invoices by a manual MMYYYY period range (e.g. '022022' to '022026')
+ */
+export function filterRecordsByPeriodRange(
+  records: InvoiceRecord[],
+  fromMMYYYY?: string,
+  toMMYYYY?: string
+): InvoiceRecord[] {
+  if (!records || records.length === 0) return [];
+  if (!fromMMYYYY && !toMMYYYY) return records;
+
+  return records.filter((rec) => isPeriodInMMYYYYRange(rec, fromMMYYYY, toMMYYYY));
+}
+
+export interface PeriodOption {
+  code: string; // e.g. '022022'
+  label: string; // e.g. 'Feb 2022 (022022)'
+  month: number;
+  year: number;
+  fy: string;
+}
+
+/**
+ * Generates an ordered list of all GST filing periods between start and end (e.g. '022022' to '022026')
+ */
+export function generatePeriodOptions(
+  startMMYYYY: string = '022022',
+  endMMYYYY: string = '022026'
+): PeriodOption[] {
+  const startScore = mmyyyyToScore(startMMYYYY) || 202202;
+  const endScore = mmyyyyToScore(endMMYYYY) || 202602;
+
+  const minScore = Math.min(startScore, endScore);
+  const maxScore = Math.max(startScore, endScore);
+
+  const startYear = Math.floor(minScore / 100);
+  const startMonth = minScore % 100;
+  const endYear = Math.floor(maxScore / 100);
+  const endMonth = maxScore % 100;
+
+  const options: PeriodOption[] = [];
+
+  let curY = startYear;
+  let curM = startMonth;
+
+  while (curY < endYear || (curY === endYear && curM <= endMonth)) {
+    const mm = curM < 10 ? `0${curM}` : `${curM}`;
+    const code = `${mm}${curY}`;
+    const monthName = getMonthShort(mm);
+    const fy = curM >= 4 ? `FY ${curY}-${String(curY + 1).slice(-2)}` : `FY ${curY - 1}-${String(curY).slice(-2)}`;
+
+    options.push({
+      code,
+      label: `${monthName} ${curY} (${code})`,
+      month: curM,
+      year: curY,
+      fy,
+    });
+
+    curM++;
+    if (curM > 12) {
+      curM = 1;
+      curY++;
+    }
+  }
+
+  return options;
+}
+
+/**
+ * Common pre-set period ranges for quick 1-click selection
+ */
+export const PERIOD_PRESETS = [
+  {
+    id: 'user-prompt-range',
+    name: 'Feb 2022 to Feb 2026 (022022 - 022026)',
+    from: '022022',
+    to: '022026',
+    description: 'Statutory 4-Year Full Multi-Cycle Audit as requested',
+  },
+  {
+    id: 'fy-24-25',
+    name: 'FY 2024-25 (042024 - 032025)',
+    from: '042024',
+    to: '032025',
+    description: 'Current Assessment Financial Year',
+  },
+  {
+    id: 'fy-23-24',
+    name: 'FY 2023-24 (042023 - 032024)',
+    from: '042023',
+    to: '032024',
+    description: 'Previous Assessment Financial Year',
+  },
+  {
+    id: 'fy-22-23',
+    name: 'FY 2022-23 (042022 - 032023)',
+    from: '042022',
+    to: '032023',
+    description: 'Historical Audit Year',
+  },
+  {
+    id: 'last-12-months',
+    name: 'Last 12 Filing Months (032025 - 022026)',
+    from: '032025',
+    to: '022026',
+    description: 'Trailing 1-Year Cycle',
+  },
+  {
+    id: 'all-time',
+    name: 'All Historical Periods (072017 - 032027)',
+    from: '072017',
+    to: '032027',
+    description: 'Complete GST regime inception to date',
+  },
+];
+
+/**
  * Filters invoices by Financial Year and Month
  */
 export function filterInvoicesByPeriod(

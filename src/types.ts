@@ -742,6 +742,7 @@ export interface BalanceSheetReport {
 export type ImportTabType =
   | 'pdf'
   | 'files'
+  | 'zip_2b'
   | 'sales_import'
   | 'hsn_import'
   | 'bank'

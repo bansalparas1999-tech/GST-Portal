@@ -630,8 +630,246 @@ export async function deleteGlobalTemplate(templateId: string): Promise<void> {
 }
 
 // ----------------------------------------------------
-// USER SPECIFIC RECONCILIATION & DATA STORAGE
+// USER SPECIFIC RECONCILIATION & DATA STORAGE (PERSISTENT PER USER ID)
 // ----------------------------------------------------
+
+/**
+ * Permanently saves imported Purchase Register and GSTR-2B records for a specific User ID.
+ * Data stays forever under that user ID until manually deleted singularly or at once.
+ */
+export async function saveUserPersistentRegisters(
+  userId: string,
+  booksRecords: InvoiceRecord[],
+  gstr2bRecords: InvoiceRecord[]
+): Promise<void> {
+  if (!userId) return;
+
+  // 1. Instant persistence in LocalStorage keyed strictly by User ID
+  try {
+    localStorage.setItem(`clear_gst_books_${userId}`, JSON.stringify(booksRecords));
+    localStorage.setItem(`clear_gst_gstr2b_${userId}`, JSON.stringify(gstr2bRecords));
+    localStorage.setItem(`clear_gst_registers_meta_${userId}`, JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      booksCount: booksRecords.length,
+      gstr2bCount: gstr2bRecords.length,
+    }));
+  } catch (e) {
+    console.warn('LocalStorage save warning for persistent registers:', e);
+  }
+
+  // 2. Persist to Firestore under users/{userId}/registers subcollection
+  try {
+    const metaDocRef = doc(db, 'users', userId, 'registers', 'metadata');
+    await setDoc(metaDocRef, {
+      updatedAt: new Date().toISOString(),
+      booksCount: booksRecords.length,
+      gstr2bCount: gstr2bRecords.length,
+      lastSavedAt: new Date().toISOString(),
+    });
+
+    // Chunk records into sets of 400 to strictly respect Firestore 1MB document limit
+    const CHUNK_SIZE = 400;
+    
+    // Save Books chunks
+    const booksChunksCount = Math.ceil(booksRecords.length / CHUNK_SIZE) || 1;
+    for (let i = 0; i < booksChunksCount; i++) {
+      const chunk = booksRecords.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      const chunkDocRef = doc(db, 'users', userId, 'registers', `books_chunk_${i}`);
+      await setDoc(chunkDocRef, { records: chunk, chunkIndex: i, count: chunk.length });
+    }
+    // Update chunk metadata for books
+    await setDoc(doc(db, 'users', userId, 'registers', 'books_manifest'), {
+      totalRecords: booksRecords.length,
+      chunksCount: booksChunksCount,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Save GSTR-2B chunks
+    const gstr2bChunksCount = Math.ceil(gstr2bRecords.length / CHUNK_SIZE) || 1;
+    for (let i = 0; i < gstr2bChunksCount; i++) {
+      const chunk = gstr2bRecords.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      const chunkDocRef = doc(db, 'users', userId, 'registers', `gstr2b_chunk_${i}`);
+      await setDoc(chunkDocRef, { records: chunk, chunkIndex: i, count: chunk.length });
+    }
+    await setDoc(doc(db, 'users', userId, 'registers', 'gstr2b_manifest'), {
+      totalRecords: gstr2bRecords.length,
+      chunksCount: gstr2bChunksCount,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Update profile metrics
+    const userDocRef = doc(db, 'users', userId);
+    await updateDoc(userDocRef, {
+      totalInvoicesProcessed: booksRecords.length + gstr2bRecords.length,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.warn('Firestore offline note for saveUserPersistentRegisters (cached locally):', err?.message || err);
+  }
+}
+
+/**
+ * Loads all permanently stored Purchase Register and GSTR-2B records for a specific User ID.
+ */
+export async function fetchUserPersistentRegisters(
+  userId: string
+): Promise<{ books: InvoiceRecord[]; gstr2b: InvoiceRecord[] }> {
+  if (!userId) return { books: [], gstr2b: [] };
+
+  // 1. Try reading from Firestore
+  try {
+    const booksManifestRef = doc(db, 'users', userId, 'registers', 'books_manifest');
+    const gstr2bManifestRef = doc(db, 'users', userId, 'registers', 'gstr2b_manifest');
+
+    const [booksSnap, gstr2bSnap] = await Promise.all([
+      getDoc(booksManifestRef),
+      getDoc(gstr2bManifestRef),
+    ]);
+
+    let loadedBooks: InvoiceRecord[] = [];
+    let loadedGstr2b: InvoiceRecord[] = [];
+
+    if (booksSnap.exists()) {
+      const manifest = booksSnap.data();
+      const chunksCount = manifest.chunksCount || 1;
+      for (let i = 0; i < chunksCount; i++) {
+        const chunkDocRef = doc(db, 'users', userId, 'registers', `books_chunk_${i}`);
+        const cSnap = await getDoc(chunkDocRef);
+        if (cSnap.exists()) {
+          const cData = cSnap.data();
+          if (Array.isArray(cData.records)) {
+            loadedBooks.push(...cData.records);
+          }
+        }
+      }
+    }
+
+    if (gstr2bSnap.exists()) {
+      const manifest = gstr2bSnap.data();
+      const chunksCount = manifest.chunksCount || 1;
+      for (let i = 0; i < chunksCount; i++) {
+        const chunkDocRef = doc(db, 'users', userId, 'registers', `gstr2b_chunk_${i}`);
+        const cSnap = await getDoc(chunkDocRef);
+        if (cSnap.exists()) {
+          const cData = cSnap.data();
+          if (Array.isArray(cData.records)) {
+            loadedGstr2b.push(...cData.records);
+          }
+        }
+      }
+    }
+
+    if (booksSnap.exists() || gstr2bSnap.exists()) {
+      // Manifests exist in Firestore for this user! Return the loaded records (even if empty, meaning cleared)
+      localStorage.setItem(`clear_gst_books_${userId}`, JSON.stringify(loadedBooks));
+      localStorage.setItem(`clear_gst_gstr2b_${userId}`, JSON.stringify(loadedGstr2b));
+      return { books: loadedBooks, gstr2b: loadedGstr2b };
+    }
+  } catch (err: any) {
+    console.warn('Firestore offline note for fetchUserPersistentRegisters, trying local cache:', err?.message || err);
+  }
+
+  // 2. Fallback to LocalStorage cache
+  try {
+    const cachedBooks = localStorage.getItem(`clear_gst_books_${userId}`);
+    const cachedGstr2b = localStorage.getItem(`clear_gst_gstr2b_${userId}`);
+
+    const books = cachedBooks ? JSON.parse(cachedBooks) : [];
+    const gstr2b = cachedGstr2b ? JSON.parse(cachedGstr2b) : [];
+
+    return {
+      books: Array.isArray(books) ? books : [],
+      gstr2b: Array.isArray(gstr2b) ? gstr2b : [],
+    };
+  } catch (e) {
+    return { books: [], gstr2b: [] };
+  }
+}
+
+/**
+ * Deletes a single invoice record permanently from user's register.
+ */
+export async function deleteUserInvoiceSingular(
+  userId: string,
+  recordId: string,
+  source: 'books' | 'gstr2b' | 'both',
+  currentBooks: InvoiceRecord[],
+  currentGstr2b: InvoiceRecord[]
+): Promise<{ books: InvoiceRecord[]; gstr2b: InvoiceRecord[] }> {
+  let updatedBooks = [...currentBooks];
+  let updatedGstr2b = [...currentGstr2b];
+
+  if (source === 'books' || source === 'both') {
+    updatedBooks = updatedBooks.filter((r) => r.id !== recordId);
+  }
+  if (source === 'gstr2b' || source === 'both') {
+    updatedGstr2b = updatedGstr2b.filter((r) => r.id !== recordId);
+  }
+
+  await saveUserPersistentRegisters(userId, updatedBooks, updatedGstr2b);
+  return { books: updatedBooks, gstr2b: updatedGstr2b };
+}
+
+/**
+ * Deletes multiple selected invoice records at once.
+ */
+export async function deleteUserInvoicesBatch(
+  userId: string,
+  recordIds: string[],
+  source: 'books' | 'gstr2b' | 'both',
+  currentBooks: InvoiceRecord[],
+  currentGstr2b: InvoiceRecord[]
+): Promise<{ books: InvoiceRecord[]; gstr2b: InvoiceRecord[] }> {
+  const idsSet = new Set(recordIds);
+  let updatedBooks = currentBooks;
+  let updatedGstr2b = currentGstr2b;
+
+  if (source === 'books' || source === 'both') {
+    updatedBooks = updatedBooks.filter((r) => !idsSet.has(r.id));
+  }
+  if (source === 'gstr2b' || source === 'both') {
+    updatedGstr2b = updatedGstr2b.filter((r) => !idsSet.has(r.id));
+  }
+
+  await saveUserPersistentRegisters(userId, updatedBooks, updatedGstr2b);
+  return { books: updatedBooks, gstr2b: updatedGstr2b };
+}
+
+/**
+ * Clears an entire register at once for a specific user ID (Purchase Register, GSTR-2B, or both).
+ */
+export async function clearUserRegisterAll(
+  userId: string,
+  target: 'books' | 'gstr2b' | 'both',
+  currentBooks: InvoiceRecord[],
+  currentGstr2b: InvoiceRecord[]
+): Promise<{ books: InvoiceRecord[]; gstr2b: InvoiceRecord[] }> {
+  let updatedBooks = target === 'books' || target === 'both' ? [] : currentBooks;
+  let updatedGstr2b = target === 'gstr2b' || target === 'both' ? [] : currentGstr2b;
+
+  // Clear local caches
+  try {
+    if (target === 'books' || target === 'both') {
+      localStorage.setItem(`clear_gst_books_${userId}`, JSON.stringify([]));
+    }
+    if (target === 'gstr2b' || target === 'both') {
+      localStorage.setItem(`clear_gst_gstr2b_${userId}`, JSON.stringify([]));
+    }
+    if (target === 'both') {
+      localStorage.removeItem(`clear_gst_recon_${userId}_current`);
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith(`clear_gst_recon_${userId}_`)) {
+          localStorage.removeItem(k);
+        }
+      });
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  await saveUserPersistentRegisters(userId, updatedBooks, updatedGstr2b);
+  return { books: updatedBooks, gstr2b: updatedGstr2b };
+}
 
 export async function saveUserReconciliationData(
   userId: string,

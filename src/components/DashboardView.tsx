@@ -14,6 +14,8 @@ import {
   Calendar,
   Layers,
   BarChart3,
+  Sliders,
+  Database,
 } from 'lucide-react';
 import { ReconSummary, ReconItem, Language } from '../types';
 import { translations } from '../utils/translations';
@@ -32,6 +34,10 @@ interface DashboardViewProps {
   onOpenNotice: (item: ReconItem) => void;
   onOpenAiAudit: () => void;
   onOpenUpload: () => void;
+  onOpenManualRecon?: () => void;
+  onOpenManageRegisters?: () => void;
+  booksCount?: number;
+  gstr2bCount?: number;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -46,6 +52,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenNotice,
   onOpenAiAudit,
   onOpenUpload,
+  onOpenManualRecon,
+  onOpenManageRegisters,
+  booksCount = 0,
+  gstr2bCount = 0,
 }) => {
   const t = translations[language];
 
@@ -91,6 +101,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         language={language}
         totalPeriodInvoices={items.length}
       />
+
+      {/* Manual Multi-Period Reconciliation Studio Banner */}
+      <div className="bg-linear-to-r from-[#1A2E25] via-[#243E32] to-[#2D4A3E] text-white p-5 rounded-2xl border border-[#3E5C4E] shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#8DA173] text-white font-bold uppercase tracking-wider">
+              Manual Period Range Engine
+            </span>
+            <span className="text-xs text-[#D3E4D6] font-mono">022022 to 022026 Multi-Cycle Audit</span>
+          </div>
+          <h3 className="text-base font-bold text-white tracking-tight">
+            Run Manual Reconciliation by Selecting Custom GSTR-2B & Purchase Periods
+          </h3>
+          <p className="text-xs text-[#C6D6CB] max-w-2xl leading-relaxed">
+            Select manual return periods (e.g. <strong>022022 to 022026</strong>) for GSTR-2B and Purchase Register. Audit results are displayed on screen with instant export to multi-sheet Excel (.xlsx) and CSV reports. All imported invoices stay permanently saved under your User ID.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          {onOpenManualRecon && (
+            <button
+              id="btn-dashboard-manual-recon"
+              type="button"
+              onClick={onOpenManualRecon}
+              className="px-4 py-2.5 bg-[#8DA173] hover:bg-[#7A8E61] text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer active:scale-98"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Manual Recon Studio</span>
+            </button>
+          )}
+
+          {onOpenManageRegisters && (
+            <button
+              id="btn-dashboard-manage-registers"
+              type="button"
+              onClick={onOpenManageRegisters}
+              className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border border-white/15"
+            >
+              <Database className="w-4 h-4 text-[#8DA173]" />
+              <span>Stored Registers ({booksCount + gstr2bCount})</span>
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Risk Alert Banner under Sec 16(2)(aa) */}
       {summary.missingIn2bCount > 0 && (

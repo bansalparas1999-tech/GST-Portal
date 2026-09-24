@@ -22,6 +22,8 @@ import {
   Globe,
   Check,
   Zap,
+  Sliders,
+  Archive,
 } from 'lucide-react';
 import { Language, UserProfile, PanEntity, PanGstinBranch } from '../types';
 import { checkExtensionActive, triggerExtensionLogin } from '../utils/gstExtensionBridge';
@@ -44,6 +46,10 @@ interface HeaderProps {
   onOpenClientSelector?: () => void;
   onOpenGstPortalLogin?: () => void;
   onOpenGstIncognitoDriver?: (gstin?: string, branch?: PanGstinBranch, entity?: PanEntity) => void;
+  onOpenManualRecon?: () => void;
+  onOpenManageRegisters?: () => void;
+  booksCount?: number;
+  gstr2bCount?: number;
   companyGstin: string;
   activePan?: string;
   activePanEntity?: PanEntity | null;
@@ -71,6 +77,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenClientSelector,
   onOpenGstPortalLogin,
   onOpenGstIncognitoDriver,
+  onOpenManualRecon,
+  onOpenManageRegisters,
+  booksCount = 0,
+  gstr2bCount = 0,
   companyGstin,
   activePan = 'AABCA1234F',
   activePanEntity,
@@ -485,6 +495,40 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-2 sm:gap-2.5">
         {currentUser ? (
           <>
+            {/* Manual Period Reconciliation Studio Button */}
+            {onOpenManualRecon && (
+              <button
+                id="btn-manual-recon-header"
+                type="button"
+                onClick={onOpenManualRecon}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#2D4A3E] hover:bg-[#1A2E25] text-white font-bold text-xs shadow-xs transition-all cursor-pointer border border-[#8DA173]/40"
+                title="Run manual reconciliation across custom GSTR-2B & Purchase Register periods (e.g. 022022 to 022026)"
+              >
+                <Sliders className="w-3.5 h-3.5 text-[#8DA173]" />
+                <span className="hidden sm:inline">Manual Recon</span>
+                <span className="px-1.5 py-0.2 bg-[#8DA173] text-white rounded text-[10px] font-mono font-bold">
+                  022022-26
+                </span>
+              </button>
+            )}
+
+            {/* Persistent Registers Manager Button */}
+            {onOpenManageRegisters && (
+              <button
+                id="btn-manage-registers-header"
+                type="button"
+                onClick={onOpenManageRegisters}
+                className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#EDF3EF] hover:bg-[#D5E2D9] text-[#2D4A3E] font-bold text-xs border border-[#D5E2D9] transition-all cursor-pointer shadow-2xs"
+                title="Manage permanently saved Purchase Register & GSTR-2B invoices for this User ID"
+              >
+                <Database className="w-3.5 h-3.5 text-[#5C7243]" />
+                <span className="hidden lg:inline">Stored Registers</span>
+                <span className="text-[10px] font-mono bg-white px-1.5 py-0.5 rounded border border-[#D5E2D9] text-[#1A2E25]">
+                  B:{booksCount} | 2B:{gstr2bCount}
+                </span>
+              </button>
+            )}
+
             {/* Official GST Portal Login & Live AI Captcha Button */}
             {onOpenGstPortalLogin && (
               <button
@@ -542,6 +586,25 @@ export const Header: React.FC<HeaderProps> = ({
                     <div>
                       <div className="font-bold">Scanned Invoices (AI OCR)</div>
                       <div className="text-[10px] text-[#738276]">Multi-page PDF & paper bills</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectImport('zip_2b')}
+                    className="w-full px-3 py-2 text-left text-xs font-semibold text-[#1A2E25] hover:bg-[#EDF3EF] flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <div className="w-6 h-6 rounded-lg bg-[#2D4A3E] flex items-center justify-center text-[#8DA173]">
+                      <Archive className="w-3.5 h-3.5 text-[#8DA173]" />
+                    </div>
+                    <div>
+                      <div className="font-bold flex items-center gap-1.5">
+                        <span>Bulk GSTR-2B ZIP Archive</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#8DA173] text-white font-bold">
+                          Multi-Period
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-[#738276]">Upload ZIP with multiple 2B JSONs</div>
                     </div>
                   </button>
 
