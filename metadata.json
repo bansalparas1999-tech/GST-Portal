@@ -1,0 +1,8 @@
+{
+  "name": "GST Reconciliation Portal",
+  "description": "Comprehensive GST Reconciliation, ITC Compliance, and Automated Financial Accounting Portal for GSTR-2B matching, Bank Statement reconciliation, Profit & Loss, Balance Sheet, and Ledgers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
