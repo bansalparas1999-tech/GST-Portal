@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GST Advisor Agent</title>
+  <style>
+    :root{--bg:#f6f8fb;--card:#fff;--text:#172033;--muted:#667085;--accent:#14532d;--border:#e4e7ec}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    header{background:linear-gradient(135deg,#0b3d25,#166534);color:#fff;padding:24px 18px}.wrap{max-width:1050px;margin:0 auto}
+    header h1{margin:0 0 6px;font-size:28px} header p{margin:0;opacity:.9} main{padding:22px 16px 40px}
+    .grid{display:grid;grid-template-columns:1fr 320px;gap:18px}.card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 30px rgba(16,24,40,.05)}
+    .chat{display:flex;flex-direction:column;min-height:620px}#messages{flex:1;overflow:auto;padding:18px}
+    .msg{margin:0 0 14px;padding:13px 15px;border-radius:13px;white-space:pre-wrap;line-height:1.55}.user{background:#ecfdf3;margin-left:12%}
+    .bot{background:#f8fafc;margin-right:6%;border:1px solid #edf0f3}.composer{display:flex;gap:10px;padding:14px;border-top:1px solid var(--border)}
+    textarea{flex:1;min-height:78px;resize:vertical;border:1px solid var(--border);border-radius:12px;padding:12px;font:inherit}
+    button{border:0;border-radius:10px;padding:11px 15px;font-weight:700;cursor:pointer}#send{background:var(--accent);color:#fff;align-self:flex-end}
+    .side{padding:18px}.side h3{margin-top:0}.chips{display:flex;flex-wrap:wrap;gap:8px}.chip{background:#f2f4f7;color:#344054;padding:8px 10px;border:1px solid var(--border)}
+    .note{color:var(--muted);font-size:13px;line-height:1.5}.status{font-size:12px;color:var(--muted);margin-top:8px}
+    @media(max-width:850px){.grid{grid-template-columns:1fr}.side{order:-1}}
+  </style>
+</head>
+<body>
+<header><div class="wrap"><h1>GST Advisor Agent</h1><p>India GST • current-source assisted • English / Hindi / Hinglish</p></div></header>
+<main class="wrap"><div class="grid">
+<section class="card chat">
+  <div id="messages"><div class="msg bot">Namaste! I am your India GST Advisor. Ask about registration, ITC, returns, e-invoicing, e-way bill, RCM, refunds, HSN/SAC, rates, notices, appeals, reconciliations, or a transaction. Mention the FY/tax period where relevant.</div></div>
+  <div class="composer"><textarea id="input" placeholder="Example: Can ITC be claimed on employee cab services for FY 2025-26?"></textarea><button id="send">Ask GST</button></div>
+</section>
+<aside class="card side">
+  <h3>Ask about</h3>
+  <div class="chips">
+    <button class="chip">ITC eligibility</button><button class="chip">GSTR-1 vs GSTR-3B</button><button class="chip">E-invoice applicability</button>
+    <button class="chip">E-way bill</button><button class="chip">RCM</button><button class="chip">GST registration</button>
+    <button class="chip">GST refund</button><button class="chip">GST notice reply</button><button class="chip">HSN/SAC & rate</button>
+    <button class="chip">GSTR-2B reconciliation</button>
+  </div>
+  <hr style="border:0;border-top:1px solid var(--border);margin:18px 0;">
+  <h3>Official sources</h3>
+  <p><a href="https://cbic-gst.gov.in/" target="_blank">CBIC GST</a></p>
+  <p><a href="https://gstcouncil.gov.in/" target="_blank">GST Council</a></p>
+  <p><a href="https://www.gst.gov.in/" target="_blank">GST Portal</a></p>
+  <p><a href="https://ewaybillgst.gov.in/" target="_blank">E-Way Bill</a></p>
+  <p><a href="https://einvoice.gst.gov.in/" target="_blank">E-Invoice</a></p>
+  <p class="note">Informational tax assistant, not a government authority. Current rates, notifications, circulars and court decisions should be verified for the relevant date.</p>
+  <div class="status" id="status">Ready</div>
+</aside>
+</div></main>
+<script>
+const messages=document.getElementById('messages'),input=document.getElementById('input'),send=document.getElementById('send'),status=document.getElementById('status');
+function add(text,cls){const d=document.createElement('div');d.className='msg '+cls;d.textContent=text;messages.appendChild(d);messages.scrollTop=messages.scrollHeight}
+async function ask(q){q=q.trim();if(!q)return;add(q,'user');input.value='';send.disabled=true;status.textContent='Checking GST sources…';
+try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q})});const data=await r.json();if(!r.ok)throw new Error(data.detail||'Request failed');add(data.answer,'bot');status.textContent='Answered with live search enabled'}catch(e){add('Error: '+e.message,'bot');status.textContent='Error'}finally{send.disabled=false;input.focus()}}
+send.onclick=()=>ask(input.value);input.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')ask(input.value)});
+document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{input.value=b.textContent;input.focus()});
+</script>
+</body>
+</html>
